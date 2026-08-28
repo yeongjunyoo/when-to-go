@@ -19,7 +19,11 @@ const MOBILE_OS = "ETC";
 // 따라서 CORS를 와일드카드로 열지 않고 자사 배포 오리진만 허용한다.
 // ⚠️ CORS는 남용 경계가 아니다(브라우저 밖 호출은 막지 못한다) — 실제 방어는
 // rate limit·서킷 브레이커·allowlist이고, 이건 정상 브라우저 경로를 열어주는 장치다.
-const ALLOWED_ORIGIN_SUFFIXES = [".when-to-go-7s6.pages.dev", "when-to-go-7s6.pages.dev"];
+// ⚠️ 선행 점이 있는 항목만 둔다. 점 없는 `"when-to-go-7s6.pages.dev"`를 `endsWith`로
+// 검사하면 레이블 경계가 없어 `evilwhen-to-go-7s6.pages.dev`가 통과한다.
+// Pages 프로젝트명은 셀프서비스라 공격자가 그 호스트명을 실제로 등록해
+// 공유 쿼터(1,000/일)를 소모시킬 수 있다. apex 도메인은 ALLOWED_ORIGINS_EXACT가 덤는다.
+const ALLOWED_ORIGIN_SUFFIXES = [".when-to-go-7s6.pages.dev"];
 const ALLOWED_ORIGINS_EXACT = ["https://when-to-go-7s6.pages.dev", "http://localhost:5173", "http://127.0.0.1:5173"];
 
 function resolveAllowedOrigin(request: Request): string | undefined {
