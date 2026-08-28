@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { fetchSidoList, fetchSigunguList, collectAttractions, SidoRegion, ProxyError, CollectIntegrity, AttractionRow } from "./proxyClient";
 import { toSignguCd, isSejong, SEJONG_SIGNGU_CD, normalizeRegnCd } from "./regionCodes";
 import { groupAttractionsAlphabetically } from "./sortAttractions";
+import AttractionDetail from "./AttractionDetail";
 
 type SidoState =
   | { status: "loading" }
@@ -30,6 +31,7 @@ export default function App() {
   const [sigungu, setSigungu] = useState<SigunguState>({ status: "idle" });
   const [selectedSigngu, setSelectedSigngu] = useState<{ code: string; name: string } | null>(null);
   const [collect, setCollect] = useState<CollectState>({ status: "idle" });
+  const [selectedAttraction, setSelectedAttraction] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -51,6 +53,7 @@ export default function App() {
     setSelectedSido(region);
     setSelectedSigngu(null);
     setCollect({ status: "idle" });
+    setSelectedAttraction(null);
 
     if (isSejong(region.code)) {
       // Sejong: single-tier special city — no signgu sub-selection step.
@@ -74,6 +77,7 @@ export default function App() {
     if (!selectedSido) return;
     const signguCd = toSignguCd(normalizeRegnCd(selectedSido.code), signgu.code);
     setSelectedSigngu({ code: signguCd, name: signgu.name });
+    setSelectedAttraction(null);
   }
 
   useEffect(() => {
@@ -184,14 +188,30 @@ export default function App() {
               </p>
               <ul className="divide-y divide-gray-200 rounded-md border border-gray-200 bg-white">
                 {groupAttractionsAlphabetically(collect.items).map((attraction) => (
-                  <li key={attraction.tAtsNm} className="p-2 text-sm">
-                    {attraction.tAtsNm}
+                  <li key={attraction.tAtsNm}>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedAttraction(attraction.tAtsNm)}
+                      className={`w-full p-2 text-left text-sm ${selectedAttraction === attraction.tAtsNm ? "bg-blue-50" : ""}`}
+                    >
+                      {attraction.tAtsNm}
+                    </button>
                   </li>
                 ))}
               </ul>
             </div>
           )}
         </section>
+      )}
+
+      {collect.status === "success" && selectedAttraction && (
+        <AttractionDetail
+          tAtsNm={selectedAttraction}
+          rows={collect.items.filter((row) => row.tAtsNm === selectedAttraction)}
+          collectionComplete={collect.integrity.complete}
+          fetchedAt={collect.fetchedAt}
+          onClose={() => setSelectedAttraction(null)}
+        />
       )}
     </div>
   );
