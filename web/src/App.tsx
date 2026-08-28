@@ -1,8 +1,24 @@
-import { useEffect, useState } from "react";
-import { fetchSidoList, fetchSigunguList, collectAttractions, SidoRegion, ProxyError, CollectIntegrity, AttractionRow } from "./proxyClient";
+import { useEffect, useMemo, useState } from "react";
+import {
+  fetchSidoList,
+  fetchSigunguList,
+  collectAttractions,
+  fetchPoiIndex,
+  fetchRelatedTop5,
+  SidoRegion,
+  ProxyError,
+  CollectIntegrity,
+  AttractionRow,
+  PoiRow,
+} from "./proxyClient";
 import { toSignguCd, isSejong, SEJONG_SIGNGU_CD, normalizeRegnCd } from "./regionCodes";
 import { groupAttractionsAlphabetically } from "./sortAttractions";
 import AttractionDetail from "./AttractionDetail";
+import PoiMatch from "./PoiMatch";
+import { buildPoiIndex } from "./match";
+import { computeRejectionDashboard } from "./rejectionDashboard";
+import RejectionDashboardBox from "./RejectionDashboardBox";
+import RelatedSection, { RelatedState } from "./RelatedSection";
 
 type SidoState =
   | { status: "loading" }
@@ -25,6 +41,24 @@ type CollectState =
   | { status: "no-data" }
   | { status: "success"; items: AttractionRow[]; integrity: CollectIntegrity; fetchedAt: number };
 
+type PoiState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "error"; message: string }
+  | { status: "incomplete"; failureReason?: string }
+  | { status: "success"; items: PoiRow[] };
+
+// baseYm은 티맵 연관 데이터의 월별 스냅샷 파라미터다. 실측 계약값(202605)을
+// 그대로 하드코딩하지 않고, 요청 시점 기준 전월(YYYYMM)을 런타임에 계산한다 —
+// 업스트림이 최신 월 스냅샷만 유지하므로 고정 상수는 곧 낡는다.
+function currentBaseYm(): string {
+  const now = new Date();
+  const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const yyyy = prevMonth.getFullYear();
+  const mm = String(prevMonth.getMonth() + 1).padStart(2, "0");
+  return `${yyyy}${mm}`;
+}
+
 export default function App() {
   const [sido, setSido] = useState<SidoState>({ status: "loading" });
   const [selectedSido, setSelectedSido] = useState<SidoRegion | null>(null);
@@ -32,6 +66,8 @@ export default function App() {
   const [selectedSigngu, setSelectedSigngu] = useState<{ code: string; name: string } | null>(null);
   const [collect, setCollect] = useState<CollectState>({ status: "idle" });
   const [selectedAttraction, setSelectedAttraction] = useState<string | null>(null);
+  const [poi, setPoi] = useState<PoiState>({ status: "idle" });
+  const [related, setRelated] = useState<RelatedState>({ status: "idle" });
 
   useEffect(() => {
     let cancelled = false;
@@ -78,6 +114,8 @@ export default function App() {
     const signguCd = toSignguCd(normalizeRegnCd(selectedSido.code), signgu.code);
     setSelectedSigngu({ code: signguCd, name: signgu.name });
     setSelectedAttraction(null);
+    setPoi({ status: "idle" });
+    setRelated({ status: "idle" });
   }
 
   useEffect(() => {
@@ -107,6 +145,63 @@ export default function App() {
       cancelled = true;
     };
   }, [selectedSido, selectedSigngu]);
+
+  // B3: POI 후보집합(areaBasedList2) — signguCd = lDongRegnCd(2)+lDongSignguCd(3) 문자열
+  // 연결으로 만들어졌다는 계약을 그대로 이용해 둘로 나눈다(선행 0 보존).
+  useEffect(() => {
+    if (!selectedSigngu) return;
+    let cancelled = false;
+    const lDongRegnCd = selectedSigngu.code.slice(0, 2);
+    const lDongSignguCd = selectedSigngu.code.slice(2);
+    setPoi({ status: "loading" });
+    fetchPoiIndex(lDongRegnCd, lDongSignguCd)
+      .then((outcome) => {
+        if (cancelled) return;
+        if (!outcome.ok) {
+          setPoi({ status: "incomplete", failureReason: outcome.failureReason });
+          return;
+        }
+        setPoi({ status: "success", items: outcome.items });
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setPoi({ status: "error", message: err instanceof ProxyError ? err.message : "알 수 없는 오류가 발생했습니다" });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSigngu]);
+
+  // B3: 티맵 연관 관광지 상위 5개 — 데이터 없는 시군구(경기도 화성시)는 빈 상태로 명시.
+  useEffect(() => {
+    if (!selectedSido || !selectedSigngu) return;
+    let cancelled = false;
+    setRelated({ status: "loading" });
+    fetchRelatedTop5(normalizeRegnCd(selectedSido.code), selectedSigngu.code, currentBaseYm())
+      .then((envelope) => {
+        if (cancelled) return;
+        setRelated(envelope.empty ? { status: "empty" } : { status: "success", items: envelope.items });
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setRelated({ status: "error", message: err instanceof ProxyError ? err.message : "알 수 없는 오류가 발생했습니다" });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSido, selectedSigngu]);
+
+  const poiIndex = useMemo(() => {
+    if (poi.status !== "success" || !selectedSido || !selectedSigngu) return null;
+    return buildPoiIndex(poi.items, selectedSido.name, selectedSigngu.name);
+  }, [poi, selectedSido, selectedSigngu]);
+
+  const rejectionDashboard = useMemo(() => {
+    if (!poiIndex || collect.status !== "success") return null;
+    const names = groupAttractionsAlphabetically(collect.items).map((a) => a.tAtsNm);
+    if (!selectedSido || !selectedSigngu) return null;
+    return computeRejectionDashboard(names, poiIndex, selectedSido.name, selectedSigngu.name);
+  }, [poiIndex, collect, selectedSido, selectedSigngu]);
 
   return (
     <div className="min-h-screen w-full bg-gray-50 px-4 py-6 text-gray-900">
@@ -204,6 +299,10 @@ export default function App() {
         </section>
       )}
 
+      {collect.status === "success" && rejectionDashboard && (
+        <RejectionDashboardBox dashboard={rejectionDashboard} />
+      )}
+
       {collect.status === "success" && selectedAttraction && (
         <AttractionDetail
           tAtsNm={selectedAttraction}
@@ -213,6 +312,12 @@ export default function App() {
           onClose={() => setSelectedAttraction(null)}
         />
       )}
+
+      {collect.status === "success" && selectedAttraction && selectedSido && selectedSigngu && (
+        <PoiMatch attractionName={selectedAttraction} poiIndex={poiIndex} sidoName={selectedSido.name} signguName={selectedSigngu.name} />
+      )}
+
+      {selectedSigngu && <RelatedSection state={related} />}
     </div>
   );
 }

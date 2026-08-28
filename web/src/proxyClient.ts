@@ -120,3 +120,148 @@ export async function collectAttractions(areaCd: string, signguCd: string): Prom
   const envelope = body as CollectEnvelope;
   return { ok: true, items: envelope.items, integrity: envelope.integrity, fetchedAt: envelope.fetchedAt, cacheHit: envelope.cacheHit };
 }
+
+export interface PoiRow {
+  contentid: string;
+  title: string;
+  addr1: string;
+  mapx: string;
+  mapy: string;
+}
+
+export type PoiOutcome =
+  | { ok: true; items: PoiRow[]; totalCount: number | null; fetchedAt: number; cacheHit: boolean }
+  | { ok: false; failureReason?: string; itemsFetched: number };
+
+interface PoiEnvelope {
+  items: PoiRow[];
+  totalCount: number | null;
+  pages: number;
+  fetchedAt: number;
+  cacheHit: boolean;
+}
+
+/**
+ * Fully collects the areaBasedList2 POI candidate index for a sigungu via
+ * /api/poi. Resolves `ok: false` (never throws) when collection completed
+ * but was incomplete — callers must surface that explicitly rather than
+ * treating a truncated candidate pool as if it were the whole thing.
+ */
+export async function fetchPoiIndex(lDongRegnCd: string, lDongSignguCd: string): Promise<PoiOutcome> {
+  const url = `${PROXY_BASE}/api/poi?lDongRegnCd=${encodeURIComponent(lDongRegnCd)}&lDongSignguCd=${encodeURIComponent(lDongSignguCd)}`;
+  const res = await fetch(url);
+  const body = (await res.json()) as unknown;
+
+  if (res.status === 502 && body && typeof body === "object" && (body as { error?: string }).error === "incomplete_poi_collection") {
+    const errBody = body as { failureReason?: string; itemsFetched: number };
+    return { ok: false, failureReason: errBody.failureReason, itemsFetched: errBody.itemsFetched };
+  }
+
+  if (!res.ok) {
+    const errBody = body as { error?: string; message?: string };
+    throw new ProxyError(errBody.message ?? errBody.error ?? `poi request failed with status ${res.status}`);
+  }
+
+  const envelope = body as PoiEnvelope;
+  return { ok: true, items: envelope.items, totalCount: envelope.totalCount, fetchedAt: envelope.fetchedAt, cacheHit: envelope.cacheHit };
+}
+
+export interface RelatedAttractionRow {
+  rank: number;
+  name: string;
+  category: string;
+  signguName: string;
+}
+
+interface RelatedEnvelope {
+  items: RelatedAttractionRow[];
+  empty: boolean;
+  totalCount: number | null;
+  fetchedAt: number;
+  cacheHit: boolean;
+}
+
+/**
+ * Top-5 related-attraction names (TarRlteTarService1). Name-only — never
+ * paired with a POI detail link (see worker/src/related.ts for why).
+ * `empty: true` means the sigungu legitimately has zero related rows
+ * (e.g. 경기도 화성시) — callers must render that as an explicit empty
+ * state, not as an indistinguishable still-loading/error state.
+ */
+export async function fetchRelatedTop5(areaCd: string, signguCd: string, baseYm: string): Promise<RelatedEnvelope> {
+  const url = `${PROXY_BASE}/api/related?areaCd=${encodeURIComponent(areaCd)}&signguCd=${encodeURIComponent(signguCd)}&baseYm=${encodeURIComponent(baseYm)}`;
+  const res = await fetch(url);
+  const body = (await res.json()) as unknown;
+  if (!res.ok) {
+    const errBody = body as { error?: string; message?: string };
+    throw new ProxyError(errBody.message ?? errBody.error ?? `related request failed with status ${res.status}`);
+  }
+  return body as RelatedEnvelope;
+}
+
+export interface DetailCommon {
+  contentid: string;
+  title: string;
+  overview: string;
+  addr1: string;
+}
+
+interface DetailCommonEnvelope {
+  data: {
+    response: {
+      header: { resultCode: string; resultMsg: string };
+      body: { items: { item: Record<string, unknown>[] | Record<string, unknown> } };
+    };
+  };
+}
+
+/** Request-scoped only — called ONLY after a single_match resolution, never persisted. */
+export async function fetchDetailCommon(contentId: string): Promise<DetailCommon | null> {
+  const url = `${PROXY_BASE}/api/proxy?operation=detailCommon2&contentId=${encodeURIComponent(contentId)}`;
+  const res = await fetch(url);
+  const body = (await res.json()) as unknown;
+  if (!res.ok) {
+    const errBody = body as { error?: string; message?: string };
+    throw new ProxyError(errBody.message ?? errBody.error ?? `detail request failed with status ${res.status}`);
+  }
+  const envelope = body as DetailCommonEnvelope;
+  const rawItems = envelope.data?.response?.body?.items?.item;
+  const arr = Array.isArray(rawItems) ? rawItems : rawItems ? [rawItems] : [];
+  if (arr.length === 0) return null;
+  const first = arr[0];
+  return {
+    contentid: String(first.contentid ?? ""),
+    title: String(first.title ?? ""),
+    overview: String(first.overview ?? ""),
+    addr1: String(first.addr1 ?? ""),
+  };
+}
+
+export interface DetailImage {
+  originimgurl: string;
+  smallimageurl: string;
+}
+
+interface DetailImageEnvelope {
+  data: {
+    response: {
+      header: { resultCode: string; resultMsg: string };
+      body: { items: { item: Record<string, unknown>[] | Record<string, unknown> } };
+    };
+  };
+}
+
+/** Request-scoped only — called ONLY after a single_match resolution, never persisted. */
+export async function fetchDetailImages(contentId: string): Promise<DetailImage[]> {
+  const url = `${PROXY_BASE}/api/proxy?operation=detailImage2&contentId=${encodeURIComponent(contentId)}&imageYN=Y`;
+  const res = await fetch(url);
+  const body = (await res.json()) as unknown;
+  if (!res.ok) {
+    const errBody = body as { error?: string; message?: string };
+    throw new ProxyError(errBody.message ?? errBody.error ?? `image request failed with status ${res.status}`);
+  }
+  const envelope = body as DetailImageEnvelope;
+  const rawItems = envelope.data?.response?.body?.items?.item;
+  const arr = Array.isArray(rawItems) ? rawItems : rawItems ? [rawItems] : [];
+  return arr.map((raw) => ({ originimgurl: String(raw.originimgurl ?? ""), smallimageurl: String(raw.smallimageurl ?? "") })).filter((img) => img.originimgurl);
+}

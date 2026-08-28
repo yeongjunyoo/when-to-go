@@ -6,6 +6,8 @@ import { isRateLimited } from "./rate-limit";
 import { redactUrl, redactText } from "./redact";
 import { recordHistory } from "./history";
 import { collectTatsCnctrRatedList } from "./collect";
+import { collectPoiIndex } from "./poi";
+import { fetchRelatedTop5 } from "./related";
 
 export interface Env {
   TOURAPI_KEY: string;
@@ -205,6 +207,104 @@ interface CollectPayload {
   integrity: unknown;
 }
 
+/**
+ * /api/poi?lDongRegnCd=..&lDongSignguCd=..
+ * Fully paginates areaBasedList2 for a single sigungu — the B-live entity
+ * resolution candidate index. Same completeness discipline as /api/collect:
+ * an incomplete POI set is never disguised as a successful (possibly
+ * empty-looking) candidate pool.
+ */
+async function handlePoi(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+
+  const clientIp = clientIpFromRequest(request);
+  if (isRateLimited(clientIp)) {
+    return jsonResponse({ error: "rate_limited", message: "too many requests, slow down" }, 429);
+  }
+
+  const lDongRegnCd = url.searchParams.get("lDongRegnCd") ?? "";
+  const lDongSignguCd = url.searchParams.get("lDongSignguCd") ?? "";
+  if (!/^\d{2}$/.test(lDongRegnCd)) {
+    return jsonResponse({ error: "invalid_request", field: "lDongRegnCd", message: "lDongRegnCd must be exactly 2 digits" }, 400);
+  }
+  if (!/^\d{3}$/.test(lDongSignguCd)) {
+    return jsonResponse({ error: "invalid_request", field: "lDongSignguCd", message: "lDongSignguCd must be exactly 3 digits" }, 400);
+  }
+
+  const cacheKey = buildCacheKey("areaBasedList2:poi", { lDongRegnCd, lDongSignguCd });
+  const cached = cacheGet<PoiPayload>(cacheKey);
+  if (cached) {
+    return jsonResponse({ ...cached.value, fetchedAt: cached.fetchedAt, cacheHit: true }, 200, circuitHeaders());
+  }
+
+  const poiResult = await collectPoiIndex(lDongRegnCd, lDongSignguCd, env);
+
+  if (!poiResult.complete) {
+    return jsonResponse({ error: "incomplete_poi_collection", failureReason: poiResult.failureReason, itemsFetched: poiResult.items.length }, 502, circuitHeaders());
+  }
+
+  const payload: PoiPayload = { items: poiResult.items, totalCount: poiResult.totalCount, pages: poiResult.pages };
+  cacheSet(cacheKey, payload);
+  const fetchedAt = Date.now();
+  return jsonResponse({ ...payload, fetchedAt, cacheHit: false }, 200, circuitHeaders());
+}
+
+interface PoiPayload {
+  items: unknown[];
+  totalCount: number | null;
+  pages: number;
+}
+
+/**
+ * /api/related?areaCd=..&signguCd=..&baseYm=..
+ * Top-5 rlteRank rows from areaBasedList1. Some sigungu (경기도 화성시)
+ * legitimately have zero related rows — that must render as an explicit
+ * empty state, not silently as "still loading".
+ */
+async function handleRelated(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+
+  const clientIp = clientIpFromRequest(request);
+  if (isRateLimited(clientIp)) {
+    return jsonResponse({ error: "rate_limited", message: "too many requests, slow down" }, 429);
+  }
+
+  const areaCd = url.searchParams.get("areaCd") ?? "";
+  const signguCd = url.searchParams.get("signguCd") ?? "";
+  const baseYm = url.searchParams.get("baseYm") ?? "";
+  if (!/^\d{2}$/.test(areaCd)) {
+    return jsonResponse({ error: "invalid_request", field: "areaCd", message: "areaCd must be exactly 2 digits" }, 400);
+  }
+  if (!/^\d{5}$/.test(signguCd)) {
+    return jsonResponse({ error: "invalid_request", field: "signguCd", message: "signguCd must be exactly 5 digits" }, 400);
+  }
+  if (!/^\d{6}$/.test(baseYm)) {
+    return jsonResponse({ error: "invalid_request", field: "baseYm", message: "baseYm must be YYYYMM (6 digits)" }, 400);
+  }
+
+  const cacheKey = buildCacheKey("areaBasedList1:related", { areaCd, signguCd, baseYm });
+  const cached = cacheGet<RelatedPayload>(cacheKey);
+  if (cached) {
+    return jsonResponse({ ...cached.value, fetchedAt: cached.fetchedAt, cacheHit: true }, 200, circuitHeaders());
+  }
+
+  const result = await fetchRelatedTop5(areaCd, signguCd, baseYm, env);
+  if ("error" in result) {
+    return jsonResponse({ error: "upstream_error", message: "failed to fetch related attractions" }, 502, circuitHeaders());
+  }
+
+  const payload: RelatedPayload = { items: result.items, empty: result.empty, totalCount: result.totalCount };
+  cacheSet(cacheKey, payload);
+  const fetchedAt = Date.now();
+  return jsonResponse({ ...payload, fetchedAt, cacheHit: false }, 200, circuitHeaders());
+}
+
+interface RelatedPayload {
+  items: unknown[];
+  empty: boolean;
+  totalCount: number | null;
+}
+
 function circuitHeaders(status?: string): Record<string, string> {
   const s = status ?? circuitStatus().status;
   const headers: Record<string, string> = {};
@@ -249,6 +349,30 @@ export default {
     if (url.pathname === "/api/collect") {
       try {
         const response = await handleCollect(request, env);
+        if (Object.keys(cors).length === 0) return response;
+        const merged = new Headers(response.headers);
+        for (const [key, value] of Object.entries(cors)) merged.set(key, value);
+        return new Response(response.body, { status: response.status, headers: merged });
+      } catch (err) {
+        return jsonResponse({ error: "internal_error", message: redactText(String((err as Error).message ?? err), env.TOURAPI_KEY) }, 500, cors);
+      }
+    }
+
+    if (url.pathname === "/api/poi") {
+      try {
+        const response = await handlePoi(request, env);
+        if (Object.keys(cors).length === 0) return response;
+        const merged = new Headers(response.headers);
+        for (const [key, value] of Object.entries(cors)) merged.set(key, value);
+        return new Response(response.body, { status: response.status, headers: merged });
+      } catch (err) {
+        return jsonResponse({ error: "internal_error", message: redactText(String((err as Error).message ?? err), env.TOURAPI_KEY) }, 500, cors);
+      }
+    }
+
+    if (url.pathname === "/api/related") {
+      try {
+        const response = await handleRelated(request, env);
         if (Object.keys(cors).length === 0) return response;
         const merged = new Headers(response.headers);
         for (const [key, value] of Object.entries(cors)) merged.set(key, value);
