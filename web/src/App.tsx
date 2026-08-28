@@ -3,19 +3,18 @@ import {
   fetchSidoList,
   fetchSigunguList,
   collectAttractions,
-  fetchPoiIndex,
   fetchRelatedTop5,
   SidoRegion,
   ProxyError,
   CollectIntegrity,
   AttractionRow,
-  PoiRow,
 } from "./proxyClient";
 import { toSignguCd, isSejong, SEJONG_SIGNGU_CD, normalizeRegnCd } from "./regionCodes";
 import { groupAttractionsAlphabetically } from "./sortAttractions";
 import AttractionDetail from "./AttractionDetail";
 import PoiMatch from "./PoiMatch";
-import { buildPoiIndex } from "./match";
+import type { PoiIndex } from "./match";
+import { getPoiIndexFor } from "./poiSource";
 import { computeRejectionDashboard } from "./rejectionDashboard";
 import RejectionDashboardBox from "./RejectionDashboardBox";
 import RelatedSection, { RelatedState } from "./RelatedSection";
@@ -53,7 +52,7 @@ type PoiState =
   | { status: "loading" }
   | { status: "error"; message: string }
   | { status: "incomplete"; failureReason?: string }
-  | { status: "success"; items: PoiRow[] };
+  | { status: "success"; index: PoiIndex };
 
 // baseYm은 티맵 연관 데이터의 월별 스냅샷 파라미터다. 실측 계약값(202605)을
 // 그대로 하드코딩하지 않고, 요청 시점 기준 전월(YYYYMM)을 런타임에 계산한다 —
@@ -153,22 +152,24 @@ export default function App() {
     };
   }, [selectedSido, selectedSigngu]);
 
-  // B3: POI 후보집합(areaBasedList2) — signguCd = lDongRegnCd(2)+lDongSignguCd(3) 문자열
-  // 연결으로 만들어졌다는 계약을 그대로 이용해 둘로 나눈다(선행 0 보존).
+  // B3/B5: POI 후보집합 — signguCd = lDongRegnCd(2)+lDongSignguCd(3) 문자열 연결으로
+  // 만들어졌다는 계약을 그대로 이용해 둘로 나눈다(선행 0 보존).
+  // getPoiIndexFor()가 B-index(승인 시)를 먼저 시도하고 없거나 미을 때 B-live로
+  // 투명하게 폴백한다 — 이 컴포넌트는 어느 경로인지 전혀 알 필요가 없다.
   useEffect(() => {
-    if (!selectedSigngu) return;
+    if (!selectedSigngu || !selectedSido) return;
     let cancelled = false;
     const lDongRegnCd = selectedSigngu.code.slice(0, 2);
     const lDongSignguCd = selectedSigngu.code.slice(2);
     setPoi({ status: "loading" });
-    fetchPoiIndex(lDongRegnCd, lDongSignguCd)
+    getPoiIndexFor(lDongRegnCd, lDongSignguCd, selectedSido.name, selectedSigngu.name)
       .then((outcome) => {
         if (cancelled) return;
         if (!outcome.ok) {
           setPoi({ status: "incomplete", failureReason: outcome.failureReason });
           return;
         }
-        setPoi({ status: "success", items: outcome.items });
+        setPoi({ status: "success", index: outcome.index });
       })
       .catch((err) => {
         if (cancelled) return;
@@ -177,7 +178,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [selectedSigngu]);
+  }, [selectedSido, selectedSigngu]);
 
   // B3: 티맵 연관 관광지 상위 5개 — 데이터 없는 시군구(경기도 화성시)는 빈 상태로 명시.
   useEffect(() => {
@@ -199,9 +200,9 @@ export default function App() {
   }, [selectedSido, selectedSigngu]);
 
   const poiIndex = useMemo(() => {
-    if (poi.status !== "success" || !selectedSido || !selectedSigngu) return null;
-    return buildPoiIndex(poi.items, selectedSido.name, selectedSigngu.name);
-  }, [poi, selectedSido, selectedSigngu]);
+    if (poi.status !== "success") return null;
+    return poi.index;
+  }, [poi]);
 
   const rejectionDashboard = useMemo(() => {
     if (!poiIndex || collect.status !== "success") return null;

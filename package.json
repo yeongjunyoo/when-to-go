@@ -11,6 +11,7 @@
     "build": "npm run build --workspace=worker && npm run build --workspace=web",
     "check:terms": "node scripts/check-forbidden-terms.mjs",
     "check:fixtures": "node scripts/check-no-prod-fixtures.mjs",
+    "check:index-approval": "node scripts/check-index-approval.mjs",
     "test": "vitest run",
     "dev:web": "npm run dev --workspace=web",
     "dev:worker": "npm run dev --workspace=worker"

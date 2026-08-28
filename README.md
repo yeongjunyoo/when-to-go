@@ -6,11 +6,10 @@
 
 > **이 배포 URL은 공모전 최종 제출 URL이며, 제출 이후 변경하지 않는다.**
 >
-> - 프론트엔드: `https://<pages-project>.pages.dev`
-> - 프록시(API): `https://<worker-name>.<subdomain>.workers.dev`
+> - 공개 서비스: `https://when-to-go-7s6.pages.dev`
+> - 프록시(API): `https://when-to-go-proxy.apple021104.workers.dev`
 >
-> 두 URL이 확정되는 즉시 이 섹션에 실제 값을 박제하고, 이후 공모전 제출이
-> 완료될 때까지 프로젝트 이름/서브도메인을 변경하지 않는다.
+> 이후 공모전 제출이 완료될 때까지 프로젝트 이름/서브도메인을 변경하지 않는다.
 
 ## 아키텍처
 
@@ -29,11 +28,19 @@ scripts/ CI 가드 (금지어 검사, 프로덕션 픽스처 검사)
 
 - 인증키는 코드/커밋/로그 어디에도 등장하지 않는다. `wrangler secret put TOURAPI_KEY`로만 관리한다.
 - 프로덕션 코드 경로에 픽스처/목 데이터를 두지 않는다(픽스처는 `tests/fixtures/`에만 존재).
-- 로컬 영속 저장 없음 — 캐시는 Workers 프로세스 메모리(TTL 최대 6시간)뿐이다.
-- 개발 계정 쿼터 1,000콜/일을 프로덕션 트래픽과 심사 증거 호출이 공유한다.
-  전역 서킷 브레이커가 490콜에서 경고, 700콜에서 upstream 호출을 차단한다.
+- API 응답은 단말에 저장하지 않는다. 쿠시는 Workers 프로세스 메모리(TTL 최대 6시간, 공유)뿐이고,
+  PWA(`vite-plugin-pwa`)는 정적 앱 셔을(HTML/JS/CSS 번들)만 Cache Storage에 precache한다
+  — API 응답은 PWA 캐싱 대상이 아니다. B-index(아래 참조)는 승인 후에만 번들에 들어가는
+  별도의 예외적 계층이다.
+- 개발 계정 쿼타 1,000콜/일을 프로덕션 트래픽과 심사 증거 호출이 공유한다.
+  전역 서킷브레이커가 490콜에서 경고, 700콜에서 upstream 호출을 차단한다.
+  이 카운터는 **isolate별 베스트에포트 카운터**다(`worker/src/circuit.ts`) — Cloudflare가 동일 워커를
+  복수 isolate에서 동시에 실행하면 각 isolate가 독립적으로 700까지 세므로, 실효 상한은 isolate 수 N에 비례해
+  `N×700`까지 늘어날 수 있다. 정확한 전역 카운트가 필요하면 Durable Objects 등 중앙집중 카운터가
+  필요하며, 현재는 이를 담당하지 않는 best-effort 예산 가드다.
 - 서비스 내 어디에도 공공데이터 제공 기관의 명칭 약칭(국문/영문)이나 로고를 사용하지 않는다.
-  금지어 목록은 `scripts/check-forbidden-terms.mjs`에 정의되어 있으며, `npm run check:terms`가 이를 CI에서 강제한다.
+  금지어 목록은 `scripts/check-forbidden-terms.mjs`에 정의되어 있으며, `.github/workflows/ci.yml`이 모든 push/PR에서
+`npm run check:terms`를 실행해 이를 강제한다.
 
 ## 재현 경로
 
@@ -91,8 +98,9 @@ npx vitest run   # 프록시 계약 테스트 — upstream은 전부 모킹, 실
 ### 금지어 / 프로덕션 픽스처 가드
 
 ```bash
-npm run check:terms      # UI/README/package.json에 금지어 없는지 검사
-npm run check:fixtures   # 빌드 산출물에 테스트 픽스처가 섞이지 않았는지 검사(빌드 후 실행)
+npm run check:terms           # UI/README/package.json에 금지어 없는지 검사
+npm run check:fixtures        # worker/src 정적 검사(상시) + web 빌드 산출물 픽스처 검사(빌드 후)
+npm run check:index-approval  # B-index 실데이터가 승인 없이 번들/git에 존재하지 않는지 검사
 ```
 
 ### 배포 (리더 실행, 이 저장소 작업자는 실행하지 않음)
@@ -114,6 +122,23 @@ npx wrangler pages deploy dist --project-name=<pages-project-name>
 배포된 Worker URL이 확정되면 `web`의 프로덕션 빌드 환경변수
 `VITE_PROXY_BASE`를 그 URL로 설정하고 재배포한다. 이후 위 URL 불변 계약에
 따라 변경하지 않는다.
+
+## B-index (승인 대기 계층)
+
+B-live(요청-스코프 실시간 호출, 영속 저장 0)가 언제나 기본 경로다. B-index는 로컬 저장 승인이 난 뒤에만
+켜지는 상위 캐싱 계층이다(POI 후보집합을 빌드타임에 생성해 번들에 넣어둘 수 있도록).
+소비 측 코드(App.tsx/MapView.tsx)는 `getPoiIndexFor()` 하나만 부르며 B-index가 그 시군구를 덞고 있으면 그것을,
+없으면 B-live를 투명하게 쓴다.
+
+- **활성화 조건**: `VITE_LOCAL_STORAGE_APPROVED=true` 하나뿐이다(기본값 off). 거절되면 이 플래그가 영구히 off로
+  남고, 코드 삭제나 사용자 가시적 변화 없이 그대로 끝난다(B-live가 이미 모든 화면을 서비스하고 있으므로).
+- **생성기**: `scripts/generate-poi-index.mjs`는 `GENERATE_INDEX_APPROVED=true`를 명시적으로 설정하지 않으면 실행을
+  거부한다(실제 승인과 별개의 수동 확인 스위치).
+- **2중 가드**: `npm run check:index-approval`가 (1) 빌드 번들(`web/dist`)과 (2) git에 커밋된 파일 양쪽을 둘 다
+  검사해, 실데이터 마커(`"__WTG_INDEX_REAL_DATA_MARKER__":true`)가 발견되면 실패한다. git 검사가 별도로
+  있는 이유: repo가 공개 전제라 번들에 안 들어가도 커밋으로 동일한 유출이 일어난다.
+- 생성기가 안 돎았을 때 기본값은 `web/src/generated/poi-index.generated.json`의 빈 플레이스홀더(`{ "entries": [] }`)이며,
+  이 상태에서는 어느 시군구도 멤치지 않아 모든 요청이 그대로 B-live로 폴백한다.
 
 ## 오퍼레이션 allowlist
 
