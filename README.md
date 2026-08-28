@@ -59,9 +59,22 @@ npm run dev:worker   # http://127.0.0.1:8787 — Cloudflare Workers 로컬 프�
 npm run dev:web      # http://localhost:5173 — Vite dev server
 ```
 
-프론트엔드가 배포된 프록시가 아닌 로컬 프록시를 바라보게 하려면
+프론트엔드가 배포된 프록시가 아닌 로커 프록시를 바라보게 하려면
 `web/.env.local`에 `VITE_PROXY_BASE=http://127.0.0.1:8787`를 설정한다
 (이 파일도 gitignore 대상).
+
+#### B4 지도 뷰 빌드 플래그
+
+지도는 `VITE_ENABLE_MAP=true`를 명시적으로 설정해야만 켜진다(기본값 off).
+타일 약관 미확인이나 Kill Table R14(09-13까지 G4 미달성) 발동 시 이 환경변수를
+빼면(또는 `false`로 설정하면) 지도 섹션이 전부 비활성화되며, 코드를 손으로 걸어낼 필요가
+없다(route-level code splitting으로 Leaflet 자체가 별도 청크로 분리되어 있어서, 플래그가
+꺼져 있으면 그 청크를 내려받지도 않는다).
+
+타일 공급자: OpenStreetMap Standard raster 타일(`tile.openstreetmap.org`),
+OSMF Tile Usage Policy(https://operations.osmfoundation.org/policies/tiles/) 준수
+확인됨(2026-08-28) — 정확한 URL, 상시 출처표기, 브라우저 기본 캐싱(no-cache 우회 없음),
+프리페치/오프라인 기능 없음.
 
 ### 빌드
 

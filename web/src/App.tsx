@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import {
   fetchSidoList,
   fetchSigunguList,
@@ -19,6 +19,13 @@ import { buildPoiIndex } from "./match";
 import { computeRejectionDashboard } from "./rejectionDashboard";
 import RejectionDashboardBox from "./RejectionDashboardBox";
 import RelatedSection, { RelatedState } from "./RelatedSection";
+import { MAP_ENABLED } from "./featureFlags";
+
+// route-level code splitting: MapView (and its Leaflet dependency) is only
+// fetched when a user who has the flag on actually renders this branch.
+// Users with the flag off, or who never scroll to a successful collection,
+// never download this chunk.
+const MapView = lazy(() => import("./MapView"));
 
 type SidoState =
   | { status: "loading" }
@@ -297,6 +304,12 @@ export default function App() {
             </div>
           )}
         </section>
+      )}
+
+      {MAP_ENABLED && collect.status === "success" && selectedSido && selectedSigngu && (
+        <Suspense fallback={<StatusBox role="status">지도 불러오는 중…</StatusBox>}>
+          <MapView items={collect.items} poiIndex={poiIndex} sidoName={selectedSido.name} signguName={selectedSigngu.name} />
+        </Suspense>
       )}
 
       {collect.status === "success" && rejectionDashboard && (
