@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { fetchSidoList, fetchSigunguList, collectAttractions, SidoRegion, ProxyError, CollectIntegrity, AttractionRow } from "./proxyClient";
-import { toSignguCd, isSejong, SEJONG_SIGNGU_CD } from "./regionCodes";
+import { toSignguCd, isSejong, SEJONG_SIGNGU_CD, normalizeRegnCd } from "./regionCodes";
 import { groupAttractionsAlphabetically } from "./sortAttractions";
 
 type SidoState =
@@ -60,7 +60,8 @@ export default function App() {
     }
 
     setSigungu({ status: "loading" });
-    fetchSigunguList(region.code)
+    // 세종은 위에서 이미 돌아갔으므로 여기는 2자리 시도만 남는다. 방어적으로 정규화한다.
+    fetchSigunguList(normalizeRegnCd(region.code))
       .then((result) => {
         setSigungu(result.regions.length === 0 ? { status: "empty" } : { status: "success", regions: result.regions });
       })
@@ -71,7 +72,7 @@ export default function App() {
 
   function handleSelectSigngu(signgu: SidoRegion) {
     if (!selectedSido) return;
-    const signguCd = toSignguCd(selectedSido.code, signgu.code);
+    const signguCd = toSignguCd(normalizeRegnCd(selectedSido.code), signgu.code);
     setSelectedSigngu({ code: signguCd, name: signgu.name });
   }
 
@@ -79,7 +80,9 @@ export default function App() {
     if (!selectedSido || !selectedSigngu) return;
     let cancelled = false;
     setCollect({ status: "loading" });
-    collectAttractions(selectedSido.code, selectedSigngu.code)
+    // `areaCd`는 2자리 계약이다. 세종은 시도 목록에서 5자리(`36110`)로 내려오므로
+    // 그대로 보내면 검증에 걸린다 — 앞 2자리로 정규화해서 보낸다.
+    collectAttractions(normalizeRegnCd(selectedSido.code), selectedSigngu.code)
       .then((outcome) => {
         if (cancelled) return;
         if (!outcome.ok) {
