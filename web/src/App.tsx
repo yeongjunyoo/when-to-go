@@ -1,69 +1,205 @@
 import { useEffect, useState } from "react";
-import { fetchSidoList, SidoRegion, ProxyError } from "./proxyClient";
+import { fetchSidoList, fetchSigunguList, collectAttractions, SidoRegion, ProxyError, CollectIntegrity, AttractionRow } from "./proxyClient";
+import { toSignguCd, isSejong, SEJONG_SIGNGU_CD } from "./regionCodes";
+import { groupAttractionsAlphabetically } from "./sortAttractions";
 
-type LoadState =
+type SidoState =
   | { status: "loading" }
   | { status: "error"; message: string }
+  | { status: "empty" }
   | { status: "success"; regions: SidoRegion[]; fetchedAt: number; cacheHit: boolean };
 
+type SigunguState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "error"; message: string }
+  | { status: "empty" }
+  | { status: "success"; regions: SidoRegion[] };
+
+type CollectState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "error"; message: string }
+  | { status: "incomplete"; integrity: CollectIntegrity; itemsFetched: number }
+  | { status: "no-data" }
+  | { status: "success"; items: AttractionRow[]; integrity: CollectIntegrity; fetchedAt: number };
+
 export default function App() {
-  const [state, setState] = useState<LoadState>({ status: "loading" });
+  const [sido, setSido] = useState<SidoState>({ status: "loading" });
+  const [selectedSido, setSelectedSido] = useState<SidoRegion | null>(null);
+  const [sigungu, setSigungu] = useState<SigunguState>({ status: "idle" });
+  const [selectedSigngu, setSelectedSigngu] = useState<{ code: string; name: string } | null>(null);
+  const [collect, setCollect] = useState<CollectState>({ status: "idle" });
 
   useEffect(() => {
     let cancelled = false;
     fetchSidoList()
       .then((result) => {
-        if (!cancelled) setState({ status: "success", ...result });
+        if (cancelled) return;
+        setSido(result.regions.length === 0 ? { status: "empty" } : { status: "success", ...result });
       })
       .catch((err) => {
-        if (!cancelled) {
-          const message = err instanceof ProxyError ? err.message : "알 수 없는 오류가 발생했습니다";
-          setState({ status: "error", message });
-        }
+        if (cancelled) return;
+        setSido({ status: "error", message: err instanceof ProxyError ? err.message : "알 수 없는 오류가 발생했습니다" });
       });
     return () => {
       cancelled = true;
     };
   }, []);
 
+  function handleSelectSido(region: SidoRegion) {
+    setSelectedSido(region);
+    setSelectedSigngu(null);
+    setCollect({ status: "idle" });
+
+    if (isSejong(region.code)) {
+      // Sejong: single-tier special city — no signgu sub-selection step.
+      setSigungu({ status: "idle" });
+      setSelectedSigngu({ code: SEJONG_SIGNGU_CD, name: region.name });
+      return;
+    }
+
+    setSigungu({ status: "loading" });
+    fetchSigunguList(region.code)
+      .then((result) => {
+        setSigungu(result.regions.length === 0 ? { status: "empty" } : { status: "success", regions: result.regions });
+      })
+      .catch((err) => {
+        setSigungu({ status: "error", message: err instanceof ProxyError ? err.message : "알 수 없는 오류가 발생했습니다" });
+      });
+  }
+
+  function handleSelectSigngu(signgu: SidoRegion) {
+    if (!selectedSido) return;
+    const signguCd = toSignguCd(selectedSido.code, signgu.code);
+    setSelectedSigngu({ code: signguCd, name: signgu.name });
+  }
+
+  useEffect(() => {
+    if (!selectedSido || !selectedSigngu) return;
+    let cancelled = false;
+    setCollect({ status: "loading" });
+    collectAttractions(selectedSido.code, selectedSigngu.code)
+      .then((outcome) => {
+        if (cancelled) return;
+        if (!outcome.ok) {
+          setCollect({ status: "incomplete", integrity: outcome.integrity, itemsFetched: outcome.itemsFetched });
+          return;
+        }
+        if (outcome.items.length === 0) {
+          setCollect({ status: "no-data" });
+          return;
+        }
+        setCollect({ status: "success", items: outcome.items, integrity: outcome.integrity, fetchedAt: outcome.fetchedAt });
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setCollect({ status: "error", message: err instanceof ProxyError ? err.message : "알 수 없는 오류가 발생했습니다" });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSido, selectedSigngu]);
+
   return (
     <div className="min-h-screen w-full bg-gray-50 px-4 py-6 text-gray-900">
       <header className="mb-6">
         <h1 className="text-2xl font-bold">언제 가지</h1>
-        <p className="mt-1 text-sm text-gray-500">공공데이터 기반 관광 혼잡도 안내 (배포 스모크 화면)</p>
+        <p className="mt-1 text-sm text-gray-500">공공데이터 기반 관광 혼잡도 안내</p>
       </header>
 
-      <section aria-label="시도 목록 스모크 테스트">
-        <h2 className="mb-2 text-lg font-semibold">시도 목록 (프록시 실호출 확인)</h2>
-
-        {state.status === "loading" && (
-          <div role="status" className="rounded-lg border border-gray-200 bg-white p-4 text-sm text-gray-600">
-            불러오는 중…
-          </div>
-        )}
-
-        {state.status === "error" && (
-          <div role="alert" className="rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-700">
-            오류: {state.message}
-          </div>
-        )}
-
-        {state.status === "success" && (
-          <div>
-            <p className="mb-2 text-xs text-gray-500">
-              {state.regions.length}개 시도 · {state.cacheHit ? "캐시됨" : "실호출"} · 기준시각{" "}
-              {new Date(state.fetchedAt).toLocaleString("ko-KR")}
-            </p>
-            <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {state.regions.map((region) => (
-                <li key={region.code} className="rounded-md border border-gray-200 bg-white p-2 text-sm">
+      <section aria-label="시도 선택" className="mb-6">
+        <h2 className="mb-2 text-lg font-semibold">1. 시도 선택</h2>
+        {sido.status === "loading" && <StatusBox role="status">불러오는 중…</StatusBox>}
+        {sido.status === "error" && <StatusBox role="alert" tone="error">오류: {sido.message}</StatusBox>}
+        {sido.status === "empty" && <StatusBox role="status" tone="empty">데이터 없음</StatusBox>}
+        {sido.status === "success" && (
+          <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {sido.regions.map((region) => (
+              <li key={region.code}>
+                <button
+                  type="button"
+                  onClick={() => handleSelectSido(region)}
+                  className={`w-full rounded-md border p-2 text-sm ${
+                    selectedSido?.code === region.code ? "border-blue-500 bg-blue-50" : "border-gray-200 bg-white"
+                  }`}
+                >
                   {region.name}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {selectedSido && !isSejong(selectedSido.code) && (
+        <section aria-label="시군구 선택" className="mb-6">
+          <h2 className="mb-2 text-lg font-semibold">2. 시군구 선택 ({selectedSido.name})</h2>
+          {sigungu.status === "loading" && <StatusBox role="status">불러오는 중…</StatusBox>}
+          {sigungu.status === "error" && <StatusBox role="alert" tone="error">오류: {sigungu.message}</StatusBox>}
+          {sigungu.status === "empty" && <StatusBox role="status" tone="empty">데이터 없음</StatusBox>}
+          {sigungu.status === "success" && (
+            <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {sigungu.regions.map((signgu) => (
+                <li key={signgu.code}>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectSigngu(signgu)}
+                    className="w-full rounded-md border border-gray-200 bg-white p-2 text-sm"
+                  >
+                    {signgu.name}
+                  </button>
                 </li>
               ))}
             </ul>
-          </div>
-        )}
-      </section>
+          )}
+        </section>
+      )}
+
+      {selectedSido && isSejong(selectedSido.code) && (
+        <section aria-label="세종특별자치시 안내" className="mb-6">
+          <StatusBox role="status" tone="empty">세종특별자치시는 단층 광역자치단체라 시군구 선택 없이 바로 조회합니다.</StatusBox>
+        </section>
+      )}
+
+      {selectedSigngu && (
+        <section aria-label="관광지 목록">
+          <h2 className="mb-2 text-lg font-semibold">3. 관광지 목록 ({selectedSigngu.name}, 가나다순)</h2>
+          {collect.status === "loading" && <StatusBox role="status">전체 페이지 수집 중…</StatusBox>}
+          {collect.status === "error" && <StatusBox role="alert" tone="error">오류: {collect.message}</StatusBox>}
+          {collect.status === "no-data" && <StatusBox role="status" tone="empty">데이터 없음</StatusBox>}
+          {collect.status === "incomplete" && (
+            <StatusBox role="alert" tone="error">
+              수집 불완전: {collect.integrity.failureReason ?? "알 수 없는 사유"} ({collect.itemsFetched}건 수집됨, 표시하지 않음)
+            </StatusBox>
+          )}
+          {collect.status === "success" && (
+            <div>
+              <p className="mb-2 text-xs text-gray-500">
+                {collect.integrity.totalCount ?? "?"}행 · {groupAttractionsAlphabetically(collect.items).length}개 관광지 · 기준시각{" "}
+                {new Date(collect.fetchedAt).toLocaleString("ko-KR")}
+              </p>
+              <ul className="divide-y divide-gray-200 rounded-md border border-gray-200 bg-white">
+                {groupAttractionsAlphabetically(collect.items).map((attraction) => (
+                  <li key={attraction.tAtsNm} className="p-2 text-sm">
+                    {attraction.tAtsNm}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </section>
+      )}
+    </div>
+  );
+}
+
+function StatusBox({ role, tone = "info", children }: { role: "status" | "alert"; tone?: "info" | "error" | "empty"; children: React.ReactNode }) {
+  const toneClass =
+    tone === "error" ? "border-red-300 bg-red-50 text-red-700" : tone === "empty" ? "border-amber-300 bg-amber-50 text-amber-700" : "border-gray-200 bg-white text-gray-600";
+  return (
+    <div role={role} className={`rounded-lg border p-4 text-sm ${toneClass}`}>
+      {children}
     </div>
   );
 }

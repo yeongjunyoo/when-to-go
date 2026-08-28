@@ -5,6 +5,7 @@ import { cacheGet, cacheSet, buildCacheKey } from "./cache";
 import { isRateLimited } from "./rate-limit";
 import { redactUrl, redactText } from "./redact";
 import { recordHistory } from "./history";
+import { collectTatsCnctrRatedList } from "./collect";
 
 export interface Env {
   TOURAPI_KEY: string;
@@ -148,6 +149,58 @@ interface UpstreamSuccessPayload {
   data: unknown;
 }
 
+/**
+ * /api/collect?operation=tatsCnctrRatedList&areaCd=..&signguCd=..
+ * Fully paginates upstream (page size fixed at 1000) and returns the whole
+ * result plus a hard completeness verdict (`integrity`). Never silently
+ * returns a partial collection as if it were complete.
+ */
+async function handleCollect(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const operation = url.searchParams.get("operation") ?? "";
+
+  const clientIp = clientIpFromRequest(request);
+  if (isRateLimited(clientIp)) {
+    return jsonResponse({ error: "rate_limited", message: "too many requests, slow down" }, 429);
+  }
+
+  if (operation !== "tatsCnctrRatedList") {
+    return jsonResponse({ error: "invalid_request", field: "operation", message: 'only "tatsCnctrRatedList" supports full collection' }, 400);
+  }
+
+  const areaCd = url.searchParams.get("areaCd") ?? "";
+  const signguCd = url.searchParams.get("signguCd") ?? "";
+  if (!/^\d{2}$/.test(areaCd)) {
+    return jsonResponse({ error: "invalid_request", field: "areaCd", message: "areaCd must be exactly 2 digits" }, 400);
+  }
+  if (!/^\d{5}$/.test(signguCd)) {
+    return jsonResponse({ error: "invalid_request", field: "signguCd", message: "signguCd must be exactly 5 digits" }, 400);
+  }
+
+  const cacheKey = buildCacheKey("tatsCnctrRatedList:collect", { areaCd, signguCd });
+  const cached = cacheGet<CollectPayload>(cacheKey);
+  if (cached) {
+    return jsonResponse({ ...cached.value, fetchedAt: cached.fetchedAt, cacheHit: true }, 200, circuitHeaders());
+  }
+
+  const { items, integrity } = await collectTatsCnctrRatedList(areaCd, signguCd, env);
+
+  if (!integrity.complete) {
+    // Never cache an incomplete collection, and never disguise it as success.
+    return jsonResponse({ error: "incomplete_collection", integrity, itemsFetched: items.length }, 502, circuitHeaders());
+  }
+
+  const payload: CollectPayload = { items, integrity };
+  cacheSet(cacheKey, payload);
+  const fetchedAt = Date.now();
+  return jsonResponse({ ...payload, fetchedAt, cacheHit: false }, 200, circuitHeaders());
+}
+
+interface CollectPayload {
+  items: unknown[];
+  integrity: unknown;
+}
+
 function circuitHeaders(status?: string): Record<string, string> {
   const s = status ?? circuitStatus().status;
   const headers: Record<string, string> = {};
@@ -187,6 +240,18 @@ export default {
 
     if (url.pathname === "/api/health") {
       return jsonResponse({ ok: true, upstreamHost: UPSTREAM_HOST }, 200, cors);
+    }
+
+    if (url.pathname === "/api/collect") {
+      try {
+        const response = await handleCollect(request, env);
+        if (Object.keys(cors).length === 0) return response;
+        const merged = new Headers(response.headers);
+        for (const [key, value] of Object.entries(cors)) merged.set(key, value);
+        return new Response(response.body, { status: response.status, headers: merged });
+      } catch (err) {
+        return jsonResponse({ error: "internal_error", message: redactText(String((err as Error).message ?? err), env.TOURAPI_KEY) }, 500, cors);
+      }
     }
 
     if (url.pathname === "/api/proxy") {

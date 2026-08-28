@@ -31,7 +31,8 @@ export interface OperationSpec {
 export const OPERATIONS: Record<OperationName, OperationSpec> = {
   ldongCode2: {
     path: "KorService2/ldongCode2",
-    params: [],
+    // lDongRegnCd is optional: omitted -> 16 sido; provided -> that sido's signgu list.
+    params: [{ name: "lDongRegnCd", required: false }],
   },
   tatsCnctrRatedList: {
     path: "TatsCnctrRateService/tatsCnctrRatedList",
