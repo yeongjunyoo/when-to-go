@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import {
   fetchSidoList,
   fetchSigunguList,
-  collectAttractions,
+  collectAttractionsStreaming,
   fetchRelatedTop5,
   SidoRegion,
   ProxyError,
@@ -42,6 +42,9 @@ type SigunguState =
 type CollectState =
   | { status: "idle" }
   | { status: "loading" }
+  // B6: 점진 렌더 상태 — 수집된 페이지의 관광지를 모아 보여주되, 완전성은 아직 미확정이라
+  // 추천·미연결률 계기판 등 "완전함"을 전제로 하는 기능은 이 상태에서 결코 놀지 않는다.
+  | { status: "collecting"; items: AttractionRow[]; pagesSoFar: number; totalCount: number | null }
   | { status: "error"; message: string }
   | { status: "incomplete"; integrity: CollectIntegrity; itemsFetched: number }
   | { status: "no-data" }
@@ -130,18 +133,46 @@ export default function App() {
     setCollect({ status: "loading" });
     // `areaCd`는 2자리 계약이다. 세종은 시도 목록에서 5자리(`36110`)로 내려오므로
     // 그대로 보내면 검증에 걸린다 — 앞 2자리로 정규화해서 보낸다.
-    collectAttractions(normalizeRegnCd(selectedSido.code), selectedSigngu.code)
+    //
+    // 실측(2026-08-28, 리더 실배포본 1회 호출): 제주시(8페이지) 캐시미스 수집이 약 5.0초로
+    // 5초 임계에 바로 걸쳐 있었다 — 그래서 항상 스트리밍 경로로 가서 수집된 페이지부터
+    // 즉시 보여준다(관광지를 임의로 누락하거나 상위 N으로 자르지 않는다 — 하드룰).
+    let accumulatedItems: AttractionRow[] = [];
+    collectAttractionsStreaming(normalizeRegnCd(selectedSido.code), selectedSigngu.code, (pageItems, pageNo, totalCount) => {
+      if (cancelled) return;
+      accumulatedItems = [...accumulatedItems, ...pageItems];
+      setCollect({ status: "collecting", items: accumulatedItems, pagesSoFar: pageNo, totalCount });
+    })
       .then((outcome) => {
         if (cancelled) return;
         if (!outcome.ok) {
-          setCollect({ status: "incomplete", integrity: outcome.integrity, itemsFetched: outcome.itemsFetched });
+          setCollect({
+            status: "incomplete",
+            integrity:
+              outcome.integrity ??
+              ({
+                stableTotal: false,
+                rawExact: false,
+                uniqueExact: false,
+                windowExact: false,
+                complete: false,
+                totalCount: null,
+                rawFetched: outcome.itemsFetched,
+                uniqueFetched: 0,
+                pages: 0,
+                windowLength: 0,
+                offendingAttractions: [],
+                failureReason: outcome.message ?? "stream ended unexpectedly",
+              } satisfies CollectIntegrity),
+            itemsFetched: outcome.itemsFetched,
+          });
           return;
         }
         if (outcome.items.length === 0) {
           setCollect({ status: "no-data" });
           return;
         }
-        setCollect({ status: "success", items: outcome.items, integrity: outcome.integrity, fetchedAt: outcome.fetchedAt });
+        setCollect({ status: "success", items: outcome.items, integrity: outcome.integrity, fetchedAt: Date.now() });
       })
       .catch((err) => {
         if (cancelled) return;
@@ -230,11 +261,13 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => handleSelectSido(region)}
+                  aria-pressed={selectedSido?.code === region.code}
                   className={`w-full rounded-md border p-2 text-sm ${
-                    selectedSido?.code === region.code ? "border-blue-500 bg-blue-50" : "border-gray-200 bg-white"
+                    selectedSido?.code === region.code ? "border-blue-500 bg-blue-50 font-semibold" : "border-gray-200 bg-white"
                   }`}
                 >
                   {region.name}
+                  {selectedSido?.code === region.code && <span className="sr-only"> (선택됨)</span>}
                 </button>
               </li>
             ))}
@@ -276,6 +309,22 @@ export default function App() {
         <section aria-label="관광지 목록">
           <h2 className="mb-2 text-lg font-semibold">3. 관광지 목록 ({selectedSigngu.name}, 가나다순)</h2>
           {collect.status === "loading" && <StatusBox role="status">전체 페이지 수집 중…</StatusBox>}
+          {collect.status === "collecting" && (
+            <div role="status" aria-live="polite" className="mb-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
+              <p className="mb-2 font-semibold">
+                수집 중… {collect.pagesSoFar}페이지 불러옴 · 현재 {collect.items.length}행
+                {collect.totalCount !== null && ` / 총 ${collect.totalCount}행`}
+              </p>
+              <p className="mb-2 text-xs">수집이 끝나야 완전한 상태로 판정됩니다 — 아래 관광지는 지금까지 받은 페이지 기준이며 일부일 수 있습니다.</p>
+              <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {groupAttractionsAlphabetically(collect.items).map((attraction) => (
+                  <li key={attraction.tAtsNm} className="rounded-md border border-blue-100 bg-white p-2 text-xs text-gray-700">
+                    {attraction.tAtsNm}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           {collect.status === "error" && <StatusBox role="alert" tone="error">오류: {collect.message}</StatusBox>}
           {collect.status === "no-data" && <StatusBox role="status" tone="empty">데이터 없음</StatusBox>}
           {collect.status === "incomplete" && (
@@ -295,9 +344,11 @@ export default function App() {
                     <button
                       type="button"
                       onClick={() => setSelectedAttraction(attraction.tAtsNm)}
-                      className={`w-full p-2 text-left text-sm ${selectedAttraction === attraction.tAtsNm ? "bg-blue-50" : ""}`}
+                      aria-pressed={selectedAttraction === attraction.tAtsNm}
+                      className={`w-full p-2 text-left text-sm ${selectedAttraction === attraction.tAtsNm ? "bg-blue-50 font-semibold" : ""}`}
                     >
                       {attraction.tAtsNm}
+                      {selectedAttraction === attraction.tAtsNm && <span className="sr-only"> (선택됨)</span>}
                     </button>
                   </li>
                 ))}
@@ -339,6 +390,9 @@ export default function App() {
 function StatusBox({ role, tone = "info", children }: { role: "status" | "alert"; tone?: "info" | "error" | "empty"; children: React.ReactNode }) {
   const toneClass =
     tone === "error" ? "border-red-300 bg-red-50 text-red-700" : tone === "empty" ? "border-amber-300 bg-amber-50 text-amber-700" : "border-gray-200 bg-white text-gray-600";
+  // role="status"/"alert" already imply an implicit aria-live (polite/assertive
+  // respectively) per the ARIA spec, so a screen reader announces loading,
+  // empty, and error states as they change without extra wiring.
   return (
     <div role={role} className={`rounded-lg border p-4 text-sm ${toneClass}`}>
       {children}

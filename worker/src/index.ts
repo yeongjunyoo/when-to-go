@@ -4,7 +4,7 @@ import { assertCircuitOpen, recordUpstreamCall, circuitStatus, CIRCUIT_WARN_THRE
 import { cacheGet, cacheSet, buildCacheKey } from "./cache";
 import { isRateLimited } from "./rate-limit";
 import { redactUrl, redactText } from "./redact";
-import { recordHistory } from "./history";
+import { recordHistory, summarizeHistory } from "./history";
 import { collectTatsCnctrRatedList } from "./collect";
 import { collectPoiIndex } from "./poi";
 import { fetchRelatedTop5 } from "./related";
@@ -208,6 +208,62 @@ interface CollectPayload {
 }
 
 /**
+ * /api/collect/stream?operation=tatsCnctrRatedList&areaCd=..&signguCd=..
+ * Progressive-render companion to /api/collect. Measured real (cache-miss)
+ * collection time for 제주시 (8 pages) is ~5s — right at the acceptance
+ * threshold — so large sigungu need a way to show collected pages before
+ * the full response lands, WITHOUT ever omitting an attraction or
+ * truncating to a top-N (hard rule). This route reuses the EXACT SAME
+ * collectTatsCnctrRatedList()/completeness-invariant logic as /api/collect
+ * (via its onPage hook) — it changes only how results are DELIVERED
+ * (streamed NDJSON lines instead of one JSON blob), never what counts as
+ * complete. Not cached (streaming responses aren't cacheable the same way).
+ */
+async function handleCollectStream(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const operation = url.searchParams.get("operation") ?? "";
+
+  const clientIp = clientIpFromRequest(request);
+  if (isRateLimited(clientIp)) {
+    return jsonResponse({ error: "rate_limited", message: "too many requests, slow down" }, 429);
+  }
+
+  if (operation !== "tatsCnctrRatedList") {
+    return jsonResponse({ error: "invalid_request", field: "operation", message: 'only "tatsCnctrRatedList" supports streaming collection' }, 400);
+  }
+
+  const areaCd = url.searchParams.get("areaCd") ?? "";
+  const signguCd = url.searchParams.get("signguCd") ?? "";
+  if (!/^\d{2}$/.test(areaCd)) {
+    return jsonResponse({ error: "invalid_request", field: "areaCd", message: "areaCd must be exactly 2 digits" }, 400);
+  }
+  if (!/^\d{5}$/.test(signguCd)) {
+    return jsonResponse({ error: "invalid_request", field: "signguCd", message: "signguCd must be exactly 5 digits" }, 400);
+  }
+
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const send = (obj: unknown) => controller.enqueue(encoder.encode(`${JSON.stringify(obj)}\n`));
+      try {
+        const { integrity } = await collectTatsCnctrRatedList(areaCd, signguCd, env, (pageItems, pageNo, totalCount) => {
+          send({ type: "page", pageNo, totalCount, items: pageItems });
+        });
+        // Same completeness verdict as /api/collect, delivered as the final
+        // line — never claim success unless every invariant genuinely held.
+        send(integrity.complete ? { type: "done", integrity } : { type: "incomplete", integrity });
+      } catch (err) {
+        send({ type: "error", message: redactText(String((err as Error).message ?? err), env.TOURAPI_KEY) });
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, { status: 200, headers: { "content-type": "application/x-ndjson; charset=utf-8" } });
+}
+
+/**
  * /api/poi?lDongRegnCd=..&lDongSignguCd=..
  * Fully paginates areaBasedList2 for a single sigungu — the B-live entity
  * resolution candidate index. Same completeness discipline as /api/collect:
@@ -305,6 +361,27 @@ interface RelatedPayload {
   totalCount: number | null;
 }
 
+/**
+ * /api/observability
+ * L4 관측성 엔드포인트 — 1차 심사의 "실제 호출 내역 대조 검증"에 직접 대응한다.
+ * 오퍼레이션별·일별 호출 수·응답코드 분포(history.ts, 키 제외) + 서킷브레이커 상태를
+ * 하나의 응답으로 묶는다. 이 자체도 공개 프록시 엔드포인트라 CORS·rate limit 적용 대상이다.
+ */
+async function handleObservability(request: Request): Promise<Response> {
+  const clientIp = clientIpFromRequest(request);
+  if (isRateLimited(clientIp)) {
+    return jsonResponse({ error: "rate_limited", message: "too many requests, slow down" }, 429);
+  }
+  const circuit = circuitStatus();
+  return jsonResponse(
+    {
+      circuit: { status: circuit.status, count: circuit.count, day: circuit.day, warnThreshold: CIRCUIT_WARN_THRESHOLD, blockThreshold: CIRCUIT_BLOCK_THRESHOLD },
+      callHistory: summarizeHistory(),
+    },
+    200
+  );
+}
+
 function circuitHeaders(status?: string): Record<string, string> {
   const s = status ?? circuitStatus().status;
   const headers: Record<string, string> = {};
@@ -346,9 +423,33 @@ export default {
       return jsonResponse({ ok: true, upstreamHost: UPSTREAM_HOST }, 200, cors);
     }
 
+    if (url.pathname === "/api/observability") {
+      try {
+        const response = await handleObservability(request);
+        if (Object.keys(cors).length === 0) return response;
+        const merged = new Headers(response.headers);
+        for (const [key, value] of Object.entries(cors)) merged.set(key, value);
+        return new Response(response.body, { status: response.status, headers: merged });
+      } catch (err) {
+        return jsonResponse({ error: "internal_error", message: redactText(String((err as Error).message ?? err), env.TOURAPI_KEY) }, 500, cors);
+      }
+    }
+
     if (url.pathname === "/api/collect") {
       try {
         const response = await handleCollect(request, env);
+        if (Object.keys(cors).length === 0) return response;
+        const merged = new Headers(response.headers);
+        for (const [key, value] of Object.entries(cors)) merged.set(key, value);
+        return new Response(response.body, { status: response.status, headers: merged });
+      } catch (err) {
+        return jsonResponse({ error: "internal_error", message: redactText(String((err as Error).message ?? err), env.TOURAPI_KEY) }, 500, cors);
+      }
+    }
+
+    if (url.pathname === "/api/collect/stream") {
+      try {
+        const response = await handleCollectStream(request, env);
         if (Object.keys(cors).length === 0) return response;
         const merged = new Headers(response.headers);
         for (const [key, value] of Object.entries(cors)) merged.set(key, value);

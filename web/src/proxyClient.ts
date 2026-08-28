@@ -121,6 +121,83 @@ export async function collectAttractions(areaCd: string, signguCd: string): Prom
   return { ok: true, items: envelope.items, integrity: envelope.integrity, fetchedAt: envelope.fetchedAt, cacheHit: envelope.cacheHit };
 }
 
+export interface StreamPageEvent {
+  type: "page";
+  pageNo: number;
+  totalCount: number | null;
+  items: AttractionRow[];
+}
+interface StreamDoneEvent {
+  type: "done";
+  integrity: CollectIntegrity;
+}
+interface StreamIncompleteEvent {
+  type: "incomplete";
+  integrity: CollectIntegrity;
+}
+interface StreamErrorEvent {
+  type: "error";
+  message: string;
+}
+type StreamEvent = StreamPageEvent | StreamDoneEvent | StreamIncompleteEvent | StreamErrorEvent;
+
+export type StreamCollectOutcome =
+  | { ok: true; items: AttractionRow[]; integrity: CollectIntegrity }
+  | { ok: false; integrity?: CollectIntegrity; itemsFetched: number; message?: string };
+
+/**
+ * Progressive-render variant of collectAttractions(): reads NDJSON lines
+ * from /api/collect/stream as they arrive and calls `onPage` with each
+ * page's items as soon as the worker has fetched it — so a caller can show
+ * results incrementally for a large sigungu (measured: 제주시 cache-miss
+ * collection took ~5.0s for 8 pages) instead of a single multi-second
+ * blocking wait. NEVER drops an attraction or truncates to a top-N — every
+ * page's full item list is delivered, exactly as /api/collect would return
+ * it, just incrementally.
+ */
+export async function collectAttractionsStreaming(
+  areaCd: string,
+  signguCd: string,
+  onPage: (items: AttractionRow[], pageNo: number, totalCount: number | null) => void
+): Promise<StreamCollectOutcome> {
+  const url = `${PROXY_BASE}/api/collect/stream?operation=tatsCnctrRatedList&areaCd=${encodeURIComponent(areaCd)}&signguCd=${encodeURIComponent(signguCd)}`;
+  const res = await fetch(url);
+  if (!res.ok || !res.body) {
+    throw new ProxyError(`stream request failed with status ${res.status}`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  const allItems: AttractionRow[] = [];
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let newlineIndex: number;
+    while ((newlineIndex = buffer.indexOf("\n")) >= 0) {
+      const line = buffer.slice(0, newlineIndex);
+      buffer = buffer.slice(newlineIndex + 1);
+      if (!line.trim()) continue;
+      const event = JSON.parse(line) as StreamEvent;
+      if (event.type === "page") {
+        allItems.push(...event.items);
+        onPage(event.items, event.pageNo, event.totalCount);
+      } else if (event.type === "done") {
+        return { ok: true, items: allItems, integrity: event.integrity };
+      } else if (event.type === "incomplete") {
+        return { ok: false, integrity: event.integrity, itemsFetched: allItems.length };
+      } else if (event.type === "error") {
+        return { ok: false, itemsFetched: allItems.length, message: event.message };
+      }
+    }
+  }
+
+  // Stream ended without a terminal line — treat as incomplete, never as success.
+  return { ok: false, itemsFetched: allItems.length, message: "stream ended without a terminal event" };
+}
+
 export interface PoiRow {
   contentid: string;
   title: string;

@@ -28,8 +28,8 @@ scripts/ CI 가드 (금지어 검사, 프로덕션 픽스처 검사)
 
 - 인증키는 코드/커밋/로그 어디에도 등장하지 않는다. `wrangler secret put TOURAPI_KEY`로만 관리한다.
 - 프로덕션 코드 경로에 픽스처/목 데이터를 두지 않는다(픽스처는 `tests/fixtures/`에만 존재).
-- API 응답은 단말에 저장하지 않는다. 쿠시는 Workers 프로세스 메모리(TTL 최대 6시간, 공유)뿐이고,
-  PWA(`vite-plugin-pwa`)는 정적 앱 셔을(HTML/JS/CSS 번들)만 Cache Storage에 precache한다
+- API 응답은 단말에 저장하지 않는다. 캐시는 Workers 프로세스 메모리(TTL 최대 6시간, 공유)뿐이고,
+  PWA(`vite-plugin-pwa`)는 정적 앱 셰(HTML/JS/CSS 번들)만 Cache Storage에 precache한다
   — API 응답은 PWA 캐싱 대상이 아니다. B-index(아래 참조)는 승인 후에만 번들에 들어가는
   별도의 예외적 계층이다.
 - 개발 계정 쿼타 1,000콜/일을 프로덕션 트래픽과 심사 증거 호출이 공유한다.
@@ -66,9 +66,26 @@ npm run dev:worker   # http://127.0.0.1:8787 — Cloudflare Workers 로컬 프�
 npm run dev:web      # http://localhost:5173 — Vite dev server
 ```
 
-프론트엔드가 배포된 프록시가 아닌 로커 프록시를 바라보게 하려면
+프론트엔드가 배포된 프록시가 아닌 로커적 프록시를 바라보게 하려면
 `web/.env.local`에 `VITE_PROXY_BASE=http://127.0.0.1:8787`를 설정한다
 (이 파일도 gitignore 대상).
+
+#### B6 서비스워커 갱신 전략
+
+**실측 결함**(2026-08-28, B4 배포 후 리더가 직접 겪음): `vite.config.ts`에 `registerType: "autoUpdate"`를
+설정해도, 앱이 `virtual:pwa-register`를 임포트하지 않으면 **이미 열려 있는 탭이 새 배포를 반영하지 않는다**
+(vite-plugin-pwa 공식 문서: virtual 모듈을 임포트하지 않으면 "어느 탭/창도 갱신되지 않는다"고 명시). B4 배포
+직후 재방문했는데 지도가 안 보여 캐시를 수동으로 지워야 했다.
+
+수정(`web/src/pwaUpdate.ts`, `web/src/main.tsx`에서 호출):
+- `registerSW({ immediate: true, ... })` — 새 서비스워커가 준비되면 **자동으로 리로드**한다. 폼 입력값이
+  없는 서비스라 자동 리로드의 데이터 손실 위험이 낮다고 판단해 선택했다 — 향후 저장해야 하는 입력이
+  생기면 `registerType: "prompt"` + "새 버전이 있습니다 — 새로고침" 배너로 전환해야 한다.
+- 1시간 간격 백그라운드 폴링(`registration.update()`) — 탐색(페이지 로드) 없이 열려 있는 탭도 1시간 내에는
+  새 배포를 감지한다. 폴링 시 `cache: "no-store"`로 sw.js 자체의 캐시도 우회해 중간 프록시/CDN이 옷
+  서비스워커 스크립트를 물고 있어도 놓치지 않는다.
+- 독립 보장: 이 전략은 **정적 앱 셰만** 관리한다. API 응답 캐싱과는 무관하다(하드룰 3 여전히 유효) —
+  `vite.config.ts`에 API 경로용 `runtimeCaching` 규칙이 없다.
 
 #### B4 지도 뷰 빌드 플래그
 
@@ -127,7 +144,7 @@ npx wrangler pages deploy dist --project-name=<pages-project-name>
 
 B-live(요청-스코프 실시간 호출, 영속 저장 0)가 언제나 기본 경로다. B-index는 로컬 저장 승인이 난 뒤에만
 켜지는 상위 캐싱 계층이다(POI 후보집합을 빌드타임에 생성해 번들에 넣어둘 수 있도록).
-소비 측 코드(App.tsx/MapView.tsx)는 `getPoiIndexFor()` 하나만 부르며 B-index가 그 시군구를 덞고 있으면 그것을,
+소비 측 코드(App.tsx/MapView.tsx)는 `getPoiIndexFor()` 하나만 부르며 B-index가 그 시군구를 덮고 있으면 그것을,
 없으면 B-live를 투명하게 쓴다.
 
 - **활성화 조건**: `VITE_LOCAL_STORAGE_APPROVED=true` 하나뿐이다(기본값 off). 거절되면 이 플래그가 영구히 off로
@@ -137,8 +154,24 @@ B-live(요청-스코프 실시간 호출, 영속 저장 0)가 언제나 기본 �
 - **2중 가드**: `npm run check:index-approval`가 (1) 빌드 번들(`web/dist`)과 (2) git에 커밋된 파일 양쪽을 둘 다
   검사해, 실데이터 마커(`"__WTG_INDEX_REAL_DATA_MARKER__":true`)가 발견되면 실패한다. git 검사가 별도로
   있는 이유: repo가 공개 전제라 번들에 안 들어가도 커밋으로 동일한 유출이 일어난다.
-- 생성기가 안 돎았을 때 기본값은 `web/src/generated/poi-index.generated.json`의 빈 플레이스홀더(`{ "entries": [] }`)이며,
-  이 상태에서는 어느 시군구도 멤치지 않아 모든 요청이 그대로 B-live로 폴백한다.
+- 생성기가 안 돌았을 때 기본값은 `web/src/generated/poi-index.generated.json`의 빈 플레이스홀더(`{ "entries": [] }`)이며,
+  이 상태에서는 어느 시군구도 커버하지 않아 모든 요청이 그대로 B-live로 폴백한다.
+
+## 성능 — 제주시 완전 수집 실측(2026-08-28)
+
+리더가 배포본에 1회 실호출해 캐시 없는(cache-miss) 제주시(제주시/50110, 8페이지, 7,320행, 244곳) 완전 수집 시간을
+`/api/collect`로 직접 측정했다: **약 5.04초**(`curl -w "%{time_total}"`), 5초 임계에 바로 걸쳤다. 캐시 적중(재호출)은 1.3초로 에지
+오버헤드만 남았다.
+
+이 측정치로 인해 `/api/collect/stream`(NDJSON 점진 렌더 경로)을 항상 경로로 삼았다 — 수집된 페이지부터 즉시 보여주되
+(관광지 임의 누락이나 상위 N 절단 없음 — 하드룰), 완전성 판정은 기존 4종 불변식(collectTatsCnctrRatedList)을 그대로
+재사용해 판단한다.
+
+## L4 관측성 — 1차 심사 실호출 대조 증거
+
+`/api/observability`가 오퍼레이션별·일별 호출 수, 응답코드 분포, `MobileApp` 값, 서킷브레이커 상태(경고/차단 임계값
+포함)를 하나의 응답으로 묶는다 — 1차 심사의 "실제 호출 내역 대조 검증"에 직접 대응한다. 인증키는 절대 포함되지
+않는다.
 
 ## 오퍼레이션 allowlist
 

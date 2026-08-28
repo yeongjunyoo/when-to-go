@@ -129,6 +129,22 @@ export default function MapView({ items, poiIndex, sidoName, signguName }: Props
         </p>
       </div>
 
+      {pins.length > 0 && (
+        <div className="mt-2 rounded-md border border-gray-200 bg-white p-3 text-xs text-gray-600">
+          <p className="mb-1 font-semibold">지도 핀 목록(텍스트 대체)</p>
+          <p className="mb-2 text-gray-500">지도는 시각 정보라 보조공학기기로 전부 전달되지 않을 수 있습니다. 아래 목록이 해당 관광지와 색상 등급을 텍스트로 제공합니다.</p>
+          <ul className="space-y-1">
+            {pins.map((pin) => (
+              <li key={pin.name}>
+                {pin.name}: {pinTierLabel(pin.tier.tier)}
+                {pin.tier.badgeOverride && " — 이 기간 내내 고집중"}
+                {pin.tier.spreadGuardApplied && " — 이 기간 차이 거의 없음"}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {unmatchedNames.length > 0 && (
         <div role="status" className="mt-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
           <p className="font-semibold">
@@ -147,6 +163,19 @@ export default function MapView({ items, poiIndex, sidoName, signguName }: Props
       )}
     </section>
   );
+}
+
+function pinTierLabel(tier: "low" | "mid" | "high" | "neutral"): string {
+  switch (tier) {
+    case "low":
+      return "저집중일";
+    case "mid":
+      return "중간";
+    case "high":
+      return "고집중";
+    case "neutral":
+      return "변별 없음/데이터 없음";
+  }
 }
 
 function escapeHtml(value: string): string {
