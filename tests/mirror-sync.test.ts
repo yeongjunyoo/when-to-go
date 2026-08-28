@@ -50,6 +50,33 @@ describe("worker/web 지역코드 미러 동기화", () => {
     }
   });
 
+  // ★ 정상 입력만 비교하면 드리프트를 못 잡는다 — 양쪽 반환값이 같아서 통과해버린다.
+  // 실제 드리프트는 **거절 동작**에 있었다: worker판은 regex 검증 후 throw하는데
+  // web 미러는 무검증 템플릿 리터럴이라 ('1','110') → worker throw / web "1110" 반환이었다.
+  it("★ toSignguCd가 잘못된 입력을 양쪽 모두 거절한다 (거절 동작 드리프트 감지)", () => {
+    const bad: Array<[string, string]> = [
+      ["1", "110"],      // 시도 1자리
+      ["111", "110"],    // 시도 3자리
+      ["11", "10"],      // 시군구 2자리
+      ["11", "1100"],    // 시군구 4자리
+      ["", "110"],
+      ["11", ""],
+      ["ab", "110"],
+      ["11", "abc"],
+    ];
+    for (const [regn, signgu] of bad) {
+      expect(() => workerCodes.toSignguCd(regn, signgu), `worker가 ${regn}/${signgu}를 통과시켰다`).toThrow();
+      expect(() => webCodes.toSignguCd(regn, signgu), `web 미러가 ${regn}/${signgu}를 통과시켰다`).toThrow();
+    }
+  });
+
+  it("오류 타입까지 미러링된다 (둘 다 RegionCodeError)", () => {
+    expect(() => workerCodes.toSignguCd("1", "110")).toThrow(workerCodes.RegionCodeError);
+    expect(() => webCodes.toSignguCd("1", "110")).toThrow(webCodes.RegionCodeError);
+    expect(() => workerCodes.normalizeRegnCd("3")).toThrow(workerCodes.RegionCodeError);
+    expect(() => webCodes.normalizeRegnCd("3")).toThrow(webCodes.RegionCodeError);
+  });
+
   it("미러가 worker의 공개 지역코드 API를 빠짐없이 제공한다", () => {
     // worker가 새 헬퍼를 추가했는데 미러에 안 옮기면 여기서 걸린다.
     const required = ["isSejong", "normalizeRegnCd", "toSignguCd", "SEJONG_REGN_CD", "SEJONG_SIGNGU_CD", "SEJONG_LDONG_CODE"];
