@@ -14,6 +14,38 @@ export interface Env {
 const MOBILE_APP = "언제가지";
 const MOBILE_OS = "ETC";
 
+// 이 프록시는 쿼터가 제한된(개발계정 1,000콜/일) 인증키를 들고 있다.
+// 따라서 CORS를 와일드카드로 열지 않고 자사 배포 오리진만 허용한다.
+// ⚠️ CORS는 남용 경계가 아니다(브라우저 밖 호출은 막지 못한다) — 실제 방어는
+// rate limit·서킷 브레이커·allowlist이고, 이건 정상 브라우저 경로를 열어주는 장치다.
+const ALLOWED_ORIGIN_SUFFIXES = [".when-to-go-7s6.pages.dev", "when-to-go-7s6.pages.dev"];
+const ALLOWED_ORIGINS_EXACT = ["https://when-to-go-7s6.pages.dev", "http://localhost:5173", "http://127.0.0.1:5173"];
+
+function resolveAllowedOrigin(request: Request): string | undefined {
+  const origin = request.headers.get("origin");
+  if (!origin) return undefined;
+  if (ALLOWED_ORIGINS_EXACT.includes(origin)) return origin;
+  try {
+    const host = new URL(origin).hostname;
+    // Pages 프리뷰 배포(<hash>.when-to-go-7s6.pages.dev)도 같은 프로젝트라 허용한다.
+    if (ALLOWED_ORIGIN_SUFFIXES.some((suffix) => host === suffix || host.endsWith(suffix))) return origin;
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
+function corsHeaders(request: Request): Record<string, string> {
+  const allowed = resolveAllowedOrigin(request);
+  if (!allowed) return {};
+  return {
+    "access-control-allow-origin": allowed,
+    "access-control-allow-methods": "GET, OPTIONS",
+    "access-control-max-age": "86400",
+    vary: "Origin",
+  };
+}
+
 function jsonResponse(body: unknown, status: number, extraHeaders: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -141,25 +173,37 @@ function kstDay(): string {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    const cors = corsHeaders(request);
+
+    // 브라우저 preflight. 허용 오리진이 아니면 CORS 헤더 없이 204를 돌려줘
+    // 브라우저가 알아서 차단하게 한다.
+    if (request.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: cors });
+    }
 
     if (request.method !== "GET") {
-      return jsonResponse({ error: "method_not_allowed" }, 405);
+      return jsonResponse({ error: "method_not_allowed" }, 405, cors);
     }
 
     if (url.pathname === "/api/health") {
-      return jsonResponse({ ok: true, upstreamHost: UPSTREAM_HOST }, 200);
+      return jsonResponse({ ok: true, upstreamHost: UPSTREAM_HOST }, 200, cors);
     }
 
     if (url.pathname === "/api/proxy") {
       try {
-        return await handleProxy(request, env);
+        const response = await handleProxy(request, env);
+        // handleProxy가 만든 응답에 CORS 헤더를 입힌다(성공·오류 경로 공통).
+        if (Object.keys(cors).length === 0) return response;
+        const merged = new Headers(response.headers);
+        for (const [key, value] of Object.entries(cors)) merged.set(key, value);
+        return new Response(response.body, { status: response.status, headers: merged });
       } catch (err) {
         // Redact defensively: never let a raw error containing the URL/key leak.
-        return jsonResponse({ error: "internal_error", message: redactText(String((err as Error).message ?? err), env.TOURAPI_KEY) }, 500);
+        return jsonResponse({ error: "internal_error", message: redactText(String((err as Error).message ?? err), env.TOURAPI_KEY) }, 500, cors);
       }
     }
 
-    return jsonResponse({ error: "not_found" }, 404);
+    return jsonResponse({ error: "not_found" }, 404, cors);
   },
 };
 
