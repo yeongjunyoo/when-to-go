@@ -1,0 +1,15 @@
+name = "when-to-go-proxy"
+main = "src/index.ts"
+compatibility_date = "2024-09-25"
+
+account_id = "aac71a6f54c1fb0d815cf3fb65e8cad9"
+
+# Secrets (do NOT put values here):
+#   wrangler secret put TOURAPI_KEY
+#
+# Local dev secret goes in worker/.dev.vars (gitignored), e.g.:
+#   TOURAPI_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+[vars]
+# non-secret vars only
+UPSTREAM_BASE = "https://apis.data.go.kr/B551011/"

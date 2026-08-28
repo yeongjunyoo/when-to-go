@@ -1,0 +1,17 @@
+{
+  "__marker": "__WTG_TEST_FIXTURE_MARKER__",
+  "response": {
+    "header": { "resultCode": "0000", "resultMsg": "OK" },
+    "body": {
+      "items": {
+        "item": [
+          { "code": "11", "name": "서울특별시" },
+          { "code": "26", "name": "부산광역시" }
+        ]
+      },
+      "numOfRows": 20,
+      "pageNo": 1,
+      "totalCount": 16
+    }
+  }
+}
