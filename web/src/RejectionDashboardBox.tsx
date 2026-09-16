@@ -5,7 +5,7 @@ export default function RejectionDashboardBox({ dashboard }: { dashboard: Reject
     <section aria-label="미연결률 계기판" className="mb-6">
       <div
         role="status"
-        className={`rounded-lg border p-3 text-xs ${dashboard.warn ? "border-red-300 bg-red-50 text-red-700" : "border-gray-200 bg-white text-gray-600"}`}
+        className={`rounded-lg border p-3 text-xs ${dashboard.warn ? "border-danger-border bg-danger-bg text-danger-fg" : "border-default bg-surface text-text-muted"}`}
       >
         <p className="font-semibold">
           위치 미연결률: {dashboard.unlinkedRatePercent.toFixed(1)}% ({dashboard.unlinkedCount}/{dashboard.total})

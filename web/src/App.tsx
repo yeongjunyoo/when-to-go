@@ -243,10 +243,10 @@ export default function App() {
   }, [poiIndex, collect, selectedSido, selectedSigngu]);
 
   return (
-    <div className="min-h-screen w-full bg-gray-50 px-4 py-6 text-gray-900">
+    <div className="min-h-screen w-full bg-canvas px-4 py-8 text-text">
       <header className="mb-6">
         <h1 className="text-2xl font-bold">언제 가지</h1>
-        <p className="mt-1 text-sm text-gray-500">공공데이터 기반 관광 혼잡도 안내</p>
+        <p className="mt-1 text-sm text-text-muted">공공데이터 기반 관광 혼잡도 안내</p>
       </header>
 
       <section aria-label="시도 선택" className="mb-6">
@@ -263,7 +263,7 @@ export default function App() {
                   onClick={() => handleSelectSido(region)}
                   aria-pressed={selectedSido?.code === region.code}
                   className={`w-full rounded-md border p-2 text-sm ${
-                    selectedSido?.code === region.code ? "border-blue-500 bg-blue-50 font-semibold" : "border-gray-200 bg-white"
+                    selectedSido?.code === region.code ? "border-accent bg-accent-subtle font-semibold" : "border-default bg-surface hover:bg-surface-hover"
                   }`}
                 >
                   {region.name}
@@ -288,7 +288,7 @@ export default function App() {
                   <button
                     type="button"
                     onClick={() => handleSelectSigngu(signgu)}
-                    className="w-full rounded-md border border-gray-200 bg-white p-2 text-sm"
+                    className="w-full rounded-md border border-default bg-surface p-2.5 text-sm transition-colors duration-fast ease-standard hover:bg-surface-hover"
                   >
                     {signgu.name}
                   </button>
@@ -310,7 +310,7 @@ export default function App() {
           <h2 className="mb-2 text-lg font-semibold">3. 관광지 목록 ({selectedSigngu.name}, 가나다순)</h2>
           {collect.status === "loading" && <StatusBox role="status">전체 페이지 수집 중…</StatusBox>}
           {collect.status === "collecting" && (
-            <div role="status" aria-live="polite" className="mb-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
+            <div role="status" aria-live="polite" className="mb-2 rounded-lg border border-info-border bg-info-bg p-3 text-sm text-info-fg">
               <p className="mb-2 font-semibold">
                 수집 중… {collect.pagesSoFar}페이지 불러옴 · 현재 {collect.items.length}행
                 {collect.totalCount !== null && ` / 총 ${collect.totalCount}행`}
@@ -318,7 +318,7 @@ export default function App() {
               <p className="mb-2 text-xs">수집이 끝나야 완전한 상태로 판정됩니다 — 아래 관광지는 지금까지 받은 페이지 기준이며 일부일 수 있습니다.</p>
               <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {groupAttractionsAlphabetically(collect.items).map((attraction) => (
-                  <li key={attraction.tAtsNm} className="rounded-md border border-blue-100 bg-white p-2 text-xs text-gray-700">
+                  <li key={attraction.tAtsNm} className="rounded-md border border-info-border bg-surface p-2 text-xs text-text-muted">
                     {attraction.tAtsNm}
                   </li>
                 ))}
@@ -334,18 +334,18 @@ export default function App() {
           )}
           {collect.status === "success" && (
             <div>
-              <p className="mb-2 text-xs text-gray-500">
+              <p className="mb-2 text-xs text-text-subtle">
                 {collect.integrity.totalCount ?? "?"}행 · {groupAttractionsAlphabetically(collect.items).length}개 관광지 · 기준시각{" "}
                 {new Date(collect.fetchedAt).toLocaleString("ko-KR")}
               </p>
-              <ul className="divide-y divide-gray-200 rounded-md border border-gray-200 bg-white">
+              <ul className="divide-y divide-default rounded-md border border-default bg-surface">
                 {groupAttractionsAlphabetically(collect.items).map((attraction) => (
                   <li key={attraction.tAtsNm}>
                     <button
                       type="button"
                       onClick={() => setSelectedAttraction(attraction.tAtsNm)}
                       aria-pressed={selectedAttraction === attraction.tAtsNm}
-                      className={`w-full p-2 text-left text-sm ${selectedAttraction === attraction.tAtsNm ? "bg-blue-50 font-semibold" : ""}`}
+                      className={`w-full p-2.5 text-left text-sm transition-colors duration-fast ease-standard hover:bg-surface-hover ${selectedAttraction === attraction.tAtsNm ? "bg-accent-subtle font-semibold" : ""}`}
                     >
                       {attraction.tAtsNm}
                       {selectedAttraction === attraction.tAtsNm && <span className="sr-only"> (선택됨)</span>}
@@ -389,7 +389,7 @@ export default function App() {
 
 function StatusBox({ role, tone = "info", children }: { role: "status" | "alert"; tone?: "info" | "error" | "empty"; children: React.ReactNode }) {
   const toneClass =
-    tone === "error" ? "border-red-300 bg-red-50 text-red-700" : tone === "empty" ? "border-amber-300 bg-amber-50 text-amber-700" : "border-gray-200 bg-white text-gray-600";
+    tone === "error" ? "border-danger-border bg-danger-bg text-danger-fg" : tone === "empty" ? "border-warn-border bg-warn-bg text-warn-fg" : "border-default bg-surface text-text-muted";
   // role="status"/"alert" already imply an implicit aria-live (polite/assertive
   // respectively) per the ARIA spec, so a screen reader announces loading,
   // empty, and error states as they change without extra wiring.

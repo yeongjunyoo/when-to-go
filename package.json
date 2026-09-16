@@ -12,6 +12,7 @@
     "check:terms": "node scripts/check-forbidden-terms.mjs",
     "check:fixtures": "node scripts/check-no-prod-fixtures.mjs",
     "check:index-approval": "node scripts/check-index-approval.mjs",
+    "check:design-tokens": "node scripts/check-design-tokens.mjs",
     "test": "vitest run",
     "dev:web": "npm run dev --workspace=web",
     "dev:worker": "npm run dev --workspace=worker"

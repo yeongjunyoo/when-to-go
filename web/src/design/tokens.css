@@ -1,0 +1,221 @@
+/* =============================================================================
+ * 디자인 토큰 — 이 파일이 단일 진실 원천(SSOT)이다.
+ *
+ * ★ 에이전트가 이 저장소의 UI 를 만질 때 지켜야 할 규칙 (검사기가 강제한다)
+ *
+ *   1. 색·간격·radius·타이포 값은 **여기서만** 정의한다.
+ *      컴포넌트(.tsx)나 다른 .css 에 `#rrggbb`·`rgb()`·`hsl()` 을 쓰지 마라.
+ *   2. Tailwind 기본 팔레트 클래스를 쓰지 마라.
+ *      `bg-gray-50` `text-blue-800` `border-amber-300` → 전부 금지.
+ *      대신 여기서 나온 시맨틱 클래스를 쓴다: `bg-surface` `text-muted` `border-default`.
+ *      (tailwind.config.js 가 이 파일을 파싱해 그 클래스를 만든다. 별도 생성 파일 없음.)
+ *   3. 런타임에 색 문자열이 필요하면(Leaflet 마커, canvas) `design/token.ts` 의
+ *      `cssVar()` 로 읽어라. 값을 복사해 상수로 박지 마라 — 다크모드에서 깨진다.
+ *   4. 새 값이 필요하면 새 토큰을 여기 추가하고 쓴다. 컴포넌트에 임의값 금지.
+ *
+ *   검사: `npm run check:design-tokens`
+ *
+ * 값을 바꾸려면 이 파일만 고치면 된다. 라이트/다크가 같은 이름을 공유하므로
+ * 컴포넌트는 테마를 알 필요가 없다.
+ * ========================================================================== */
+
+:root {
+  /* --- 타이포 -------------------------------------------------------------
+   * 한글 본문은 영문보다 행간이 넉넉해야 읽힌다. line-height 를 1.6~1.7 로 둔다.
+   * Pretendard 는 국문 웹 실무 표준에 가깝고 OFL 로 배포된다. 미설치 환경을 위해
+   * 시스템 한글 폰트를 순서대로 폴백한다. */
+  --font-sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont,
+    system-ui, "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic",
+    sans-serif;
+  --font-numeric: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+
+  --text-xs: 0.75rem;    /* 12px — 보조 설명. 본문에 쓰지 마라 */
+  --text-sm: 0.875rem;   /* 14px — 보조 본문 */
+  --text-base: 1rem;     /* 16px — 본문 기본 */
+  --text-lg: 1.125rem;   /* 18px — 카드 제목 */
+  --text-xl: 1.375rem;   /* 22px — 섹션 제목 */
+  --text-2xl: 1.75rem;   /* 28px — 화면 제목 */
+  --text-3xl: 2.25rem;   /* 36px — 히어로 */
+
+  --leading-tight: 1.3;
+  --leading-normal: 1.6;   /* 국문 본문 기본 */
+  --leading-relaxed: 1.75;
+
+  --weight-normal: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  /* --- 간격 (4px 배수) ---------------------------------------------------- */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+
+  /* --- 모서리 ------------------------------------------------------------- */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-full: 9999px;
+
+  /* --- 그림자 — 공공 서비스 톤이라 과하지 않게 ----------------------------- */
+  --shadow-sm: 0 1px 2px rgb(15 23 42 / 0.06);
+  --shadow-md: 0 2px 8px rgb(15 23 42 / 0.08);
+  --shadow-lg: 0 8px 24px rgb(15 23 42 / 0.10);
+
+  /* --- 레이아웃 ------------------------------------------------------------
+   * 글줄이 화면 끝까지 늘어나면 읽기 어렵다. 본문 컨테이너에 상한을 둔다. */
+  --width-content: 56rem;   /* 896px — 본문 */
+  --width-wide: 72rem;      /* 1152px — 지도·표 등 넓은 블록 */
+
+  /* --- 모션 ---------------------------------------------------------------- */
+  --motion-fast: 120ms;
+  --motion-base: 200ms;
+  --motion-ease: cubic-bezier(0.2, 0, 0.2, 1);
+
+  /* --- 표면과 글자 (라이트) ------------------------------------------------ */
+  --color-canvas: #f6f7f9;         /* 페이지 배경 */
+  --color-surface: #ffffff;        /* 카드 */
+  --color-surface-sunken: #f1f3f6; /* 입력 배경, 비활성 셀 */
+  --color-surface-hover: #eef1f5;
+
+  --color-border: #dfe3e9;
+  --color-border-strong: #c3cad4;
+
+  --color-text: #16202e;           /* 본문 */
+  --color-text-muted: #5b6676;     /* 보조 */
+  --color-text-subtle: #8792a2;    /* 더 약한 보조, 비활성 */
+  --color-text-on-accent: #ffffff;
+
+  /* --- 강조색 -------------------------------------------------------------- */
+  --color-accent: #1b5fd9;
+  --color-accent-hover: #164fb4;
+  --color-accent-subtle: #e8f0fd;
+  --color-accent-border: #b9d1f7;
+
+  --color-focus: #1b5fd9;          /* 포커스 링 — 접근성상 반드시 보여야 한다 */
+
+  /* --- 상태색 --------------------------------------------------------------
+   * 각 상태는 bg / border / fg 세 쌍으로만 쓴다. 임의 조합 금지. */
+  --color-info-bg: #e8f0fd;
+  --color-info-border: #b9d1f7;
+  --color-info-fg: #16458f;
+
+  --color-success-bg: #e6f4ec;
+  --color-success-border: #a8d8bd;
+  --color-success-fg: #10653a;
+
+  --color-warn-bg: #fdf3e2;
+  --color-warn-border: #f0d199;
+  --color-warn-fg: #8a5a08;
+
+  --color-danger-bg: #fdeaea;
+  --color-danger-border: #f4bcbc;
+  --color-danger-fg: #9b1c1c;
+
+  /* --- 혼잡도 스케일 --------------------------------------------------------
+   * 제품의 핵심 시각 언어. 관광지 「자기 자신의 분포」 안에서의 등급이지
+   * 관광지 간 비교값이 아니다(web/src/pinClassify.ts 의 하드 계약).
+   *
+   * 색만으로 정보를 전달하지 않는다 — 캘린더 셀은 색 + 숫자,
+   * 지도 핀은 색 + 텍스트 대체 목록을 함께 제공한다(색각 이상 대응). */
+  --color-congestion-low: #2563eb;
+  --color-congestion-mid: #f59e0b;
+  --color-congestion-high: #dc2626;
+  --color-congestion-none: #9ca3af;   /* 변별 없음 / 데이터 없음 */
+
+  /* 캘린더 히트맵 5단 — 낮을수록 한산.
+   *
+   * 단일 색상(주황) 계열로 **명도만 단조 감소**시킨다. 순차형 데이터에
+   * 색상환을 가로지르는 램프(파랑→주황→빨강)를 쓰면 색각 이상에서 순서가
+   * 무너지고, 적록 조합은 특히 피해야 한다. 한 색으로 밝기만 바꾸면
+   * 색을 구분 못 해도 진하기로 순서가 읽힌다.
+   *
+   * 색은 보조 채널이다 — 모든 칸에 숫자를 같이 찍고 aria-label 에 등급을
+   * 문장으로 넣는다. 값 없는 날은 램프 밖의 회색이다(0 과 헷갈리면 안 된다). */
+  --color-heat-1: #fdf4e8;
+  --color-heat-2: #fbe1c0;
+  --color-heat-3: #f6c894;
+  --color-heat-4: #eea963;
+  --color-heat-5: #dd8734;
+  --color-heat-empty: #eef1f5;        /* 램프 밖 — 0 으로 채우지 않는다 */
+}
+
+/* 다크모드. 같은 토큰 이름을 덮어쓰므로 컴포넌트는 손댈 필요가 없다.
+ * data-theme 로 수동 전환도 가능하게 둔다. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-canvas: #0f1319;
+    --color-surface: #171c24;
+    --color-surface-sunken: #1f252f;
+    --color-surface-hover: #252c37;
+
+    --color-border: #2b323d;
+    --color-border-strong: #3c4553;
+
+    --color-text: #e8ecf1;
+    --color-text-muted: #a3adbb;
+    --color-text-subtle: #7c8694;
+    --color-text-on-accent: #ffffff;
+
+    --color-accent: #5b93f0;
+    --color-accent-hover: #7aa8f4;
+    --color-accent-subtle: #17283f;
+    --color-accent-border: #2c4a72;
+
+    --color-focus: #7aa8f4;
+
+    --color-info-bg: #16283f;
+    --color-info-border: #2b4a75;
+    --color-info-fg: #b9d1f7;
+
+    --color-success-bg: #12301f;
+    --color-success-border: #235c3c;
+    --color-success-fg: #9fd9ba;
+
+    --color-warn-bg: #33270e;
+    --color-warn-border: #6b521c;
+    --color-warn-fg: #f0cf94;
+
+    --color-danger-bg: #351616;
+    --color-danger-border: #6e2a2a;
+    --color-danger-fg: #f3b0b0;
+
+    --color-congestion-low: #5b93f0;
+    --color-congestion-mid: #e0a33a;
+    --color-congestion-high: #e06666;
+    --color-congestion-none: #6b7480;
+
+    /* 다크에서도 같은 원칙 — 한 색으로 명도만 단조 증가 */
+    --color-heat-1: #2a2118;
+    --color-heat-2: #3d2e1c;
+    --color-heat-3: #573f21;
+    --color-heat-4: #78552a;
+    --color-heat-5: #9c6d33;
+    --color-heat-empty: #1f252f;
+  }
+}
+
+/* 접근성: 포커스는 항상 보여야 한다. outline 을 지우지 마라. */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* 모션 민감 사용자 존중 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

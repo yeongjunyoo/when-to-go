@@ -22,7 +22,8 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import type { AttractionRow } from "./proxyClient";
 import { buildCalendar } from "./attractionAnalysis";
-import { classifyPin, PIN_TIER_COLORS } from "./pinClassify";
+import { classifyPin } from "./pinClassify";
+import { pinTierColor } from "./design/token";
 import { PoiIndex, resolveAttraction } from "./match";
 import { groupAttractionsAlphabetically } from "./sortAttractions";
 import { summarizeUnmatchedTypes } from "./unmatchedTypes";
@@ -85,8 +86,8 @@ export default function MapView({ items, poiIndex, sidoName, signguName }: Props
     for (const pin of pins) {
       const marker = L.circleMarker([pin.lat, pin.lng], {
         radius: 8,
-        color: PIN_TIER_COLORS[pin.tier.tier],
-        fillColor: PIN_TIER_COLORS[pin.tier.tier],
+        color: pinTierColor(pin.tier.tier),
+        fillColor: pinTierColor(pin.tier.tier),
         fillOpacity: 0.8,
       }).addTo(map);
       const badgeNote = pin.tier.badgeOverride ? "<br/><strong>이 기간 내내 고집중</strong>" : "";
@@ -106,33 +107,33 @@ export default function MapView({ items, poiIndex, sidoName, signguName }: Props
   return (
     <section aria-label="지도" className="mb-6">
       <h2 className="mb-2 text-lg font-semibold">지도</h2>
-      <div ref={containerRef} className="h-80 w-full rounded-lg border border-gray-200" role="application" aria-label="관광지 지도" />
+      <div ref={containerRef} className="h-80 w-full rounded-lg border border-default" role="application" aria-label="관광지 지도" />
 
-      <div role="status" className="mt-2 rounded-md border border-gray-200 bg-white p-3 text-xs text-gray-600">
+      <div role="status" className="mt-2 rounded-md border border-default bg-surface p-3 text-xs text-text-muted">
         <p className="mb-1 font-semibold">범례</p>
         <ul className="flex flex-wrap gap-3">
           <li>
-            <span className="inline-block h-3 w-3 rounded-full" style={{ backgroundColor: PIN_TIER_COLORS.low }} /> 이 관광지 기준 저집중일
+            <span className="inline-block h-3 w-3 rounded-full bg-congestion-low" /> 이 관광지 기준 저집중일
           </li>
           <li>
-            <span className="inline-block h-3 w-3 rounded-full" style={{ backgroundColor: PIN_TIER_COLORS.mid }} /> 중간
+            <span className="inline-block h-3 w-3 rounded-full bg-congestion-mid" /> 중간
           </li>
           <li>
-            <span className="inline-block h-3 w-3 rounded-full" style={{ backgroundColor: PIN_TIER_COLORS.high }} /> 고집중(또는 기간 내내 고집중 배지)
+            <span className="inline-block h-3 w-3 rounded-full bg-congestion-high" /> 고집중(또는 기간 내내 고집중 배지)
           </li>
           <li>
-            <span className="inline-block h-3 w-3 rounded-full" style={{ backgroundColor: PIN_TIER_COLORS.neutral }} /> 변별 없음/데이터 없음
+            <span className="inline-block h-3 w-3 rounded-full bg-congestion-none" /> 변별 없음/데이터 없음
           </li>
         </ul>
-        <p className="mt-2 font-semibold text-amber-700">
+        <p className="mt-2 font-semibold text-warn-fg">
           ⚠️ 색은 각 관광지 자기 자신의 기간 내 상대 비교입니다. 서로 다른 핀의 색을 맞비교하지 마세요 — 집중률은 시군구 단위 상대 정규화 값이라 관광지 간 비교가 무의미합니다.
         </p>
       </div>
 
       {pins.length > 0 && (
-        <div className="mt-2 rounded-md border border-gray-200 bg-white p-3 text-xs text-gray-600">
+        <div className="mt-2 rounded-md border border-default bg-surface p-3 text-xs text-text-muted">
           <p className="mb-1 font-semibold">지도 핀 목록(텍스트 대체)</p>
-          <p className="mb-2 text-gray-500">지도는 시각 정보라 보조공학기기로 전부 전달되지 않을 수 있습니다. 아래 목록이 해당 관광지와 색상 등급을 텍스트로 제공합니다.</p>
+          <p className="mb-2 text-text-subtle">지도는 시각 정보라 보조공학기기로 전부 전달되지 않을 수 있습니다. 아래 목록이 해당 관광지와 색상 등급을 텍스트로 제공합니다.</p>
           <ul className="space-y-1">
             {pins.map((pin) => (
               <li key={pin.name}>
@@ -146,7 +147,7 @@ export default function MapView({ items, poiIndex, sidoName, signguName }: Props
       )}
 
       {unmatchedNames.length > 0 && (
-        <div role="status" className="mt-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
+        <div role="status" className="mt-2 rounded-md border border-warn-border bg-warn-bg p-3 text-xs text-warn-fg">
           <p className="font-semibold">
             위치 정보 없음 {unmatchedNames.length}곳 (지도에 표시되지 않음)
           </p>

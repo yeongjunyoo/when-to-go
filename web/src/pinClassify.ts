@@ -93,9 +93,7 @@ export function classifyPin(calendar: CalendarDay[], targetDate?: string): PinCl
   return { tier: tierFromPercentile(percentile), badgeOverride: false, spreadGuardApplied: false, percentileRank: percentile, targetDate: resolvedTargetDate };
 }
 
-export const PIN_TIER_COLORS: Record<PinTier, string> = {
-  low: "#2563eb", // blue — this attraction's relatively quieter days
-  mid: "#f59e0b", // amber
-  high: "#dc2626", // red — includes badge-override "이 기간 내내 고집중" attractions
-  neutral: "#9ca3af", // gray — spread guard or no data; never implies "quiet" or "crowded"
-};
+// 핀 색은 여기 두지 않는다. 이 모듈은 DOM 을 모르는 순수 분류 로직이고,
+// 색은 테마에 따라 달라지는 표현 계층의 값이다.
+//   → 색이 필요하면 design/token.ts 의 pinTierColor(tier) 를 써라.
+//     (값의 정본은 design/tokens.css 의 --color-congestion-*)

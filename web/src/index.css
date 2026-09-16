@@ -1,3 +1,29 @@
+/* 토큰이 먼저 와야 Tailwind base 가 var() 를 쓸 수 있다. */
+@import "./design/tokens.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  html {
+    /* 한글 본문은 영문보다 행간이 넉넉해야 읽힌다 */
+    font-family: var(--font-sans);
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--color-canvas);
+    color: var(--color-text);
+    font-size: var(--text-base);
+    line-height: var(--leading-normal);
+    /* 한글은 단어 단위 줄바꿈이 자연스럽다 */
+    word-break: keep-all;
+    overflow-wrap: break-word;
+  }
+
+  /* 숫자 비교가 잦은 화면이라 자릿수가 흔들리면 읽기 나쁘다 */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}

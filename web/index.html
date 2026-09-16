@@ -1,9 +1,19 @@
 <!doctype html>
-<html lang="ko">
+<!-- 심사 기간에는 라이트로 잠근다. 기능설명서에 실린 화면이 라이트라
+     심사위원 OS 가 다크면 제출 문서와 다른 화면을 보게 된다.
+     다크 토큰은 tokens.css 에 그대로 있으니 이 속성만 지우면 자동 전환으로 돌아간다. -->
+<html lang="ko" data-theme="light">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>언제 가지</title>
+    <title>언제 가지 — 덜 붐비는 날 찾기</title>
+    <meta
+      name="description"
+      content="관광지를 고르면 그 관광지의 예보 기간 안에서 덜 붐비는 날 3일을 알려줍니다. 목적지가 아니라 날짜를 옮겨 쏠림을 분산합니다."
+    />
+    <!-- content 는 main.tsx 가 --color-accent 에서 채운다. 여기 색을 박으면
+         tokens.css 와 갈라진다. -->
+    <meta name="theme-color" content="" />
   </head>
   <body>
     <div id="root"></div>
