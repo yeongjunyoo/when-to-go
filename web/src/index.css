@@ -26,4 +26,10 @@
   .tabular {
     font-variant-numeric: tabular-nums;
   }
+
+  /* 값 없는 칸. 색이 아니라 패턴으로 구분한다 — tokens.css 의 --fill-no-data 주석 참고. */
+  .no-data-fill {
+    background-color: var(--color-heat-empty);
+    background-image: var(--fill-no-data);
+  }
 }

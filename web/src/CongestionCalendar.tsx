@@ -99,7 +99,7 @@ export default function CongestionCalendar({ calendar, recommendedYmds = [] }: P
           const date = parseYmd(day.baseYmd);
           const hasValue = day.cnctrRate !== null;
 
-          const bg = step !== null ? HEAT_BG[step] : "bg-heat-empty";
+          const bg = step !== null ? HEAT_BG[step] : "no-data-fill";
           const tierText = step !== null ? HEAT_LABEL[step] : null;
 
           const label = [
@@ -159,7 +159,7 @@ export default function CongestionCalendar({ calendar, recommendedYmds = [] }: P
           ))}
           <li className="inline-flex items-center gap-1.5">
             <i
-              className="inline-block h-3 w-3 rounded-sm border border-default bg-heat-empty"
+              className="no-data-fill inline-block h-3 w-3 rounded-sm border border-default"
               aria-hidden="true"
             />
             정보 없음

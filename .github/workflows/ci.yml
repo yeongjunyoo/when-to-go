@@ -34,3 +34,6 @@ jobs:
 
       - name: B-index approval double guard
         run: npm run check:index-approval
+
+      - name: Design token guard (색 하드코딩·기본 팔레트·미정의 토큰)
+        run: npm run check:design-tokens

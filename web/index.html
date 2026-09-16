@@ -14,6 +14,14 @@
     <!-- content 는 main.tsx 가 --color-accent 에서 채운다. 여기 색을 박으면
          tokens.css 와 갈라진다. -->
     <meta name="theme-color" content="" />
+
+    <!-- KRDS 표준형 기본 서체. 동적 서브셋이라 한글 전체를 받지 않는다. -->
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+    <link
+      rel="stylesheet"
+      crossorigin
+      href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard-gov-dynamic-subset.min.css"
+    />
   </head>
   <body>
     <div id="root"></div>

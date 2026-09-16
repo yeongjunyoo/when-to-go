@@ -243,10 +243,14 @@ export default function App() {
   }, [poiIndex, collect, selectedSido, selectedSigngu]);
 
   return (
-    <div className="min-h-screen w-full bg-canvas px-4 py-8 text-text">
-      <header className="mb-6">
-        <h1 className="text-2xl font-bold">언제 가지</h1>
-        <p className="mt-1 text-sm text-text-muted">공공데이터 기반 관광 혼잡도 안내</p>
+    // 배경은 index.css 의 body 가 깔아 준다. 여기서는 글줄 길이만 잡는다 —
+    // 상한이 없으면 와이드 모니터에서 한 줄이 화면 끝까지 늘어나 읽기 나쁘다.
+    <div className="mx-auto min-h-screen max-w-content px-4 py-8 text-text">
+      <header className="mb-8">
+        <h1 className="text-2xl font-bold sm:text-3xl">언제 가지</h1>
+        <p className="mt-2 text-base text-text-muted">
+          가고 싶은 관광지를 고르면, 그 관광지가 덜 붐비는 날 3일을 알려드립니다.
+        </p>
       </header>
 
       <section aria-label="시도 선택" className="mb-6">
@@ -383,7 +387,34 @@ export default function App() {
       )}
 
       {selectedSigngu && <RelatedSection state={related} />}
+
+      <SiteFooter />
     </div>
+  );
+}
+
+// 공공누리 제1유형은 출처 표시가 의무다. 디자인 토큰과 서체를 KRDS 기준으로
+// 맞췄으므로 표시해 둔다 — 라이선스 준수이면서, 공공 표준을 따랐다는 근거이기도 하다.
+function SiteFooter() {
+  return (
+    <footer className="mt-12 border-t border-default pt-4 text-xs text-text-subtle">
+      <p>
+        디자인은{" "}
+        <a
+          href="https://www.krds.go.kr"
+          target="_blank"
+          rel="noreferrer"
+          className="underline"
+        >
+          KRDS(범정부 UI/UX 디자인시스템)
+        </a>
+        의 색·서체 기준을 따랐습니다. 공공누리 제1유형.
+      </p>
+      <p className="mt-1">
+        집중률은 시군구 단위 상대 정규화 값이라 관광지끼리 직접 비교할 수 없습니다. 이 서비스의
+        모든 색과 순위는 각 관광지 자기 기준입니다.
+      </p>
+    </footer>
   );
 }
 
